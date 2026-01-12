@@ -94,33 +94,25 @@ const Expr = union(enum){
 	ATOM: Atom
 };
 
-const Context = union(enum){
-	inactive,
-	active: Buffer(Atom)
-};
-
-const MAX_CONTEXTS = 8;
-
-const Universe = struct {
+const Context = struct {
 	mem: *const std.mem.Allocator,
 	constraints: Buffer(*Expr),
 	invokable: Buffer(*Expr),
-	contexts: [MAX_CONTEXTS] Context,
+	active: Buffer(Atom),
+	graph: Graph,
 	step: u64,
 
-	pub fn init(mem: *const std.mem.Allocator) Universe {
-		var universe = Universe{
+	pub fn init(mem: *const std.mem.Allocator, graph: Graph) Context {
+		const context = Context{
 			.mem = mem,
 			.constraints = Buffer(*Expr).init(mem.*),
 			.invokable = Buffer(*Expr).init(mem.*),
-			.contexts = undefined
+			.active = Buffer(Atom).init(mem.*),
+			.graph = graph,
+			.step = 0
 		};
-		for (0..MAX_CONTEXTS) |i| {
-			universe.contexts[i] = Context{
-				.inactive = .{}
-			};
-		}
-		return universe;
+		// TODO propogate initials to invocable and constraints
+		return context;
 	}
 };
 
@@ -235,7 +227,34 @@ const Graph = struct {
 		std.debug.print("]\n", .{});
 		std.debug.print("difficulty: {}\n", .{self.difficulty});
 	}
-	
+
+	pub fn propagate(self: *Graph, universe: Set) void {
+		//TODO 
+	}
+};
+
+const Problem = struct {
+	graph: Graph,
+	universe: Set,
+
+	pub fn init(mem: *const std.mem.Allocator, n: u64, rand: std.Random) Problem {
+		const complexity = (n/4)-1;
+		const graph = Graph.init(mem, n, complexity, rand);
+		const universe = Set.init(mem.*);
+		const capabilities = graph.terminal.items.len + ((graph.internal.difficulty/3)*2);
+		for (0..capabilities) |i| {
+			universe.append(Atom{
+				.global = .{
+					.id = i
+				}
+			}) catch unreachable;
+		}
+		graph.propagate(mem, universe);
+		return Problem{
+			.graph = graph,
+			.universe = universe
+		};
+	}
 };
 
 pub fn main() !void {
