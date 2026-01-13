@@ -237,10 +237,10 @@ const Graph = struct {
 
 	//TODO parameter propagation
 	pub fn propagate(self: *Graph, universe: Set) void {
-		for (self.nodes.items, universe.items) |node, capability| {
-			node.capabiity = capability;
+		for (0..self.nodes.items.len, universe.items) |i, capability| {
+			self.nodes.items[i].capability = capability;
 		}
-		var local_universe = Set.int(self.mem.*);
+		var local_universe = Set.init(self.mem.*);
 		var layer = Buffer(u64).init(self.mem.*);
 		var layer_q = Buffer(u64).init(self.mem.*);
 		layer_q.appendSlice(self.initial.items)
@@ -251,21 +251,22 @@ const Graph = struct {
 				catch unreachable;
 			layer_q.clearRetainingCapacity();
 			for (layer.items) |index| {
-				const node = self.nodes.items[index];
-				std.debug.assert(node.capability != null);
-				local_universe.append(node.capability)
-					catch unreachable;
-				for (0..self.nodes.items.len) |target| {
-					const subindex = (index * self.nodes.items.len) + target;
-					if (self.matrix.items[subindex]){
-						layer_q.append(target)
+				var node = self.nodes.items[index];
+				if (node.capability) |capability| {
+					local_universe.append(capability)
+						catch unreachable;
+					for (0..self.nodes.items.len) |target| {
+						const subindex = (index * self.nodes.items.len) + target;
+						if (self.matrix.items[subindex]){
+							layer_q.append(target)
+								catch unreachable;
+						}
+					}
+					node.value = generate_predicate(self.mem, self.rng, local_universe, 3);
+					while (self.rng.intRangeAtMost(u64, 0, 2) == 0){
+						node.local_constraints.append(generate_predicate(self.mem, self.rng, local_universe, 3))
 							catch unreachable;
 					}
-				}
-				node.value = generate_predicate(self.mem, self.rng, local_universe, 3);
-				while (self.rng.intRangeAtMost(u64, 0, 2) == 0){
-					node.local_constraints.append(generate_predicate(self.mem, self.rng, local_universe, 3))
-						catch unreachable;
 				}
 			}
 		}
@@ -297,14 +298,18 @@ pub fn noarg_atom() Atom {
 }
 
 pub fn generate_predicate(mem: *const std.mem.Allocator, rng: std.Random, local_universe: Set, max_depth: u64) *Expr {
-	if (max_depth == 0 or rng.intRangeAtMost(0, 2) == 0){
-		const loc = mem.create(Expr);
-		loc.* = choose(rng, local_universe);
+	if (max_depth == 0 or rng.intRangeAtMost(u64, 0, 2) == 0){
+		const loc = mem.create(Expr)
+			catch unreachable;
+		loc.* = Expr{
+			.ATOM = choose(rng, local_universe)
+		};
 		return loc;
 	}
 	const options = 8;
 	const n = rng.intRangeAtMost(u64, 0, options-1);
-	const loc = mem.create(Expr);
+	const loc = mem.create(Expr)
+		catch unreachable;
 	switch (n){
 		0 => {
 			loc.* = Expr{
@@ -425,12 +430,12 @@ pub fn generate_predicate(mem: *const std.mem.Allocator, rng: std.Random, local_
 			loc.* = Expr{
 				.ANY = .{
 					.predicate = generate_composable_predicate(mem, rng),
-					.collecction = Set.init(mem.*)
+					.collection = Set.init(mem.*)
 				}
 			};
 			const cardinality = rng.intRangeAtMost(u64, 1, 4);
 			for (0..cardinality) |_| {
-				loc.ANY.append(choose(rng, local_universe))
+				loc.ANY.collection.append(choose(rng, local_universe))
 					catch unreachable;
 			}
 			return loc;
@@ -439,12 +444,12 @@ pub fn generate_predicate(mem: *const std.mem.Allocator, rng: std.Random, local_
 			loc.* = Expr{
 				.ALL = .{
 					.predicate = generate_composable_predicate(mem, rng),
-					.collecction = Set.init(mem.*)
+					.collection = Set.init(mem.*)
 				}
 			};
 			const cardinality = rng.intRangeAtMost(u64, 1, 4);
 			for (0..cardinality) |_| {
-				loc.ALL.append(choose(rng, local_universe))
+				loc.ALL.collection.append(choose(rng, local_universe))
 					catch unreachable;
 			}
 			return loc;
@@ -537,14 +542,18 @@ pub fn generate_predicate(mem: *const std.mem.Allocator, rng: std.Random, local_
 }
 
 pub fn generate_composable_predicate(mem: *const std.mem.Allocator, rng: std.Random) *Expr {
-	if (rng.intRangeAtMost(0, 2) == 0){
-		const loc = mem.create(Expr);
-		loc.* = noarg_atom();
+	if (rng.intRangeAtMost(u64, 0, 2) == 0){
+		const loc = mem.create(Expr)
+			catch unreachable;
+		loc.* = Expr{
+			.ATOM=noarg_atom()
+		};
 		return loc;
 	}
 	const options = 8;
 	const n = rng.intRangeAtMost(u64, 0, options-1);
-	const loc = mem.create(Expr);
+	const loc = mem.create(Expr)
+		catch unreachable;
 	switch (n){
 		0 => {
 			loc.* = Expr{
@@ -655,7 +664,7 @@ pub fn generate_composable_predicate(mem: *const std.mem.Allocator, rng: std.Ran
 			loc.* = Expr{
 				.ANY = .{
 					.predicate = generate_composable_predicate(mem, rng),
-					.collecction = Set.init(mem.*)
+					.collection = Set.init(mem.*)
 				}
 			};
 			return loc;
@@ -664,7 +673,7 @@ pub fn generate_composable_predicate(mem: *const std.mem.Allocator, rng: std.Ran
 			loc.* = Expr{
 				.ALL = .{
 					.predicate = generate_composable_predicate(mem, rng),
-					.collecction = Set.init(mem.*)
+					.collection = Set.init(mem.*)
 				}
 			};
 			return loc;
@@ -868,7 +877,7 @@ pub fn show_expr(expr: *Expr) void {
 		},
 		.CONSUME => {
 			std.debug.print("/ ", .{});
-			show_atom(expr.COMSUME);
+			show_atom(expr.CONSUME);
 		},
 		.FORBIDDEN => {
 			std.debug.print("! ", .{});
@@ -895,14 +904,16 @@ pub fn show_atom(atom: Atom) void {
 	switch (atom){
 		.instance => {
 			std.debug.print("[{} {} {} <- ", .{atom.instance.id, atom.instance.meta, atom.instance.created_at});
-			for (atom.instance.lineage) |ancestor| {
-				std.debug.print("{} <- ", .{});
+			for (atom.instance.lineage.items) |ancestor| {
 				show_atom(ancestor);
+				std.debug.print("<- ", .{});
 			}
 			std.debug.print("] ", .{});
 		},
 		.global => {
-			std.debug.print("[{}] ", .{atom.global.id});
+			if (atom.global.id) |id| {
+				std.debug.print("[{}] ", .{id});
+			}
 		}
 	}
 }
@@ -921,8 +932,8 @@ const Problem = struct {
 
 	pub fn init(mem: *const std.mem.Allocator, n: u64, rand: std.Random) Problem {
 		const complexity = (n/4)-1;
-		const graph = Graph.init(mem, n, complexity, rand);
-		const universe = Set.init(mem.*);
+		var graph = Graph.init(mem, n, complexity, rand);
+		var universe = Set.init(mem.*);
 		for (0..n) |i| {
 			universe.append(Atom{
 				.global = .{
@@ -930,7 +941,7 @@ const Problem = struct {
 				}
 			}) catch unreachable;
 		}
-		graph.propagate(mem, universe);
+		graph.propagate(universe);
 		return Problem{
 			.graph = graph,
 			.universe = universe
@@ -950,6 +961,18 @@ pub fn main() !void {
 	var main_mem = std.heap.ArenaAllocator.init(allocator);
 	defer main_mem.deinit();
 	const mem = main_mem.allocator();
-	var graph = Graph.init(&mem, 16, 2, prng.random());
-	graph.show_matrix();
+	var problem = Problem.init(&mem, 16, prng.random());
+	problem.graph.show_matrix();
+	for (problem.graph.nodes.items) |node| {
+		if (node.capability) |capability| {
+			show_atom(capability);
+		}
+		std.debug.print(": \n", .{});
+		if (node.value) |value| {
+			show_expr(value);
+		}
+		for (node.local_constraints.items) |constraint| {
+			show_expr(constraint);
+		}
+	}
 }
