@@ -967,13 +967,19 @@ pub fn main() !void {
 	var main_mem = std.heap.ArenaAllocator.init(allocator);
 	defer main_mem.deinit();
 	const mem = main_mem.allocator();
-	var problem = Problem.init(&mem, 16, prng.random());
+	var problem = Problem.init(&mem, 8, prng.random());
 	problem.graph.show_matrix();
-	for (problem.graph.nodes.items) |node| {
+	for (problem.graph.nodes.items, 0..) |node, i| {
 		if (node.capability) |capability| {
 			show_atom(capability);
 		}
-		std.debug.print(": \n", .{});
+		std.debug.print("-> ", .{});
+		for (0..problem.graph.nodes.items.len) |k| {
+			if (problem.graph.matrix.items[(i*problem.graph.nodes.items.len)+k]){
+				std.debug.print("{} ", .{k});
+			}
+		}
+		std.debug.print(": ", .{});
 		if (node.value) |value| {
 			show_expr(value);
 		}
@@ -981,5 +987,6 @@ pub fn main() !void {
 			show_expr(constraint);
 			std.debug.print("\n", .{});
 		}
+		std.debug.print("\n", .{});
 	}
 }
