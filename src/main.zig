@@ -12,7 +12,7 @@ const Atom = union(enum){
 		lineage: Buffer(Atom)
 	},
 	global: struct {
-		id: u64
+		id: ?u64
 	}
 };
 
@@ -53,7 +53,7 @@ const Expr = union(enum){
 		left: Atom,
 		right: Atom
 	},
-	After: struct {
+	AFTER: struct {
 		left: Atom,
 		right: Atom
 	},
@@ -82,7 +82,6 @@ const Expr = union(enum){
 		left_b: Atom,
 		right_b: Atom
 	},
-	AGE: Atom,
 	MONOTONIC: Set,
 	CONSUME: Atom,
 	FORBIDDEN: Atom,
@@ -236,6 +235,7 @@ const Graph = struct {
 		std.debug.print("difficulty: {}\n", .{self.difficulty});
 	}
 
+	//TODO parameter propagation
 	pub fn propagate(self: *Graph, universe: Set) void {
 		for (self.nodes.items, universe.items) |node, capability| {
 			node.capabiity = capability;
@@ -262,9 +262,9 @@ const Graph = struct {
 							catch unreachable;
 					}
 				}
-				node.value = generate_predicate(self.mem, local_universe);
+				node.value = generate_predicate(self.mem, self.rng, local_universe, 3);
 				while (self.rng.intRangeAtMost(u64, 0, 2) == 0){
-					node.local_constraints.append(generate_constraint(self.mme, local_universe))
+					node.local_constraints.append(generate_predicate(self.mem, self.rng, local_universe, 3))
 						catch unreachable;
 				}
 			}
@@ -275,12 +275,644 @@ const Graph = struct {
 	}
 };
 
-pub fn generate_predicate(mem: *const std.mem.Allocator, local_universe: Set) *Expr {
-	//TODO
+pub fn choose(rng: std.Random, local_universe: Set) Atom {
+	const n = rng.intRangeAtMost(u64, 0, local_universe.items.len-1);
+	return local_universe.items[n];
 }
 
-pub fn generate_constraint(mem: *const std.mem.Allocator, local_universe: Set) *Expr {
-	//TODO
+pub fn expr_atom(mem: *const std.mem.Allocator, atom: Atom) *Expr {
+	const loc = mem.create(Expr);
+	loc.* = Expr{
+		.ATOM = atom
+	};
+	return loc;
+}
+
+pub fn noarg_atom() Atom {
+	return Atom{
+		.global = .{
+			.id = null
+		}
+	};
+}
+
+pub fn generate_predicate(mem: *const std.mem.Allocator, rng: std.Random, local_universe: Set, max_depth: u64) *Expr {
+	if (max_depth == 0 or rng.intRangeAtMost(0, 2) == 0){
+		const loc = mem.create(Expr);
+		loc.* = choose(rng, local_universe);
+		return loc;
+	}
+	const options = 8;
+	const n = rng.intRangeAtMost(u64, 0, options-1);
+	const loc = mem.create(Expr);
+	switch (n){
+		0 => {
+			loc.* = Expr{
+				.AND = .{
+					.left = generate_predicate(mem, rng, local_universe, max_depth-1),
+					.right = generate_predicate(mem, rng, local_universe, max_depth-1)
+				}
+			};
+			return loc;
+		},
+		1 => {
+			loc.* = Expr{
+				.OR = .{
+					.left = generate_predicate(mem, rng, local_universe, max_depth-1),
+					.right = generate_predicate(mem, rng, local_universe, max_depth-1)
+				}
+			};
+			return loc;
+		},
+		2 => {
+			loc.* = Expr{
+				.XOR = .{
+					.left = generate_predicate(mem, rng, local_universe, max_depth-1),
+					.right = generate_predicate(mem, rng, local_universe, max_depth-1)
+				}
+			};
+			return loc;
+		},
+		3 => {
+			loc.* = Expr{
+				.LESS = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		4 => {
+			loc.* = Expr{
+				.GREATER = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		5 => {
+			loc.* = Expr{
+				.LESS = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		6 => {
+			loc.* = Expr{
+				.IN = .{
+					.sub = choose(rng, local_universe),
+					.set = Set.init(mem.*)
+				}
+			};
+			const cardinality = rng.intRangeAtMost(u64, 1, 4);
+			for (0..cardinality) |_| {
+				loc.IN.set.append(choose(rng, local_universe))
+					catch unreachable;
+			}
+			return loc;
+		},
+		7 => {
+			loc.* = Expr{
+				.MATCH_LINEAGE = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		8 => {
+			loc.* = Expr{
+				.BEFORE = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		9 => {
+			loc.* = Expr{
+				.AFTER = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		10 => {
+			loc.* = Expr{
+				.STEP_DIFF = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		11 => {
+			loc.* = Expr{
+				.ALL_DISTINCT = Set.init(mem.*)
+			};
+			const cardinality = rng.intRangeAtMost(u64, 1, 4);
+			for (0..cardinality) |_| {
+				loc.ALL_DISTINCT.append(choose(rng, local_universe))
+					catch unreachable;
+			}
+			return loc;
+		},
+		12 => {
+			loc.* = Expr{
+				.ANY = .{
+					.predicate = generate_composable_predicate(mem, rng),
+					.collecction = Set.init(mem.*)
+				}
+			};
+			const cardinality = rng.intRangeAtMost(u64, 1, 4);
+			for (0..cardinality) |_| {
+				loc.ANY.append(choose(rng, local_universe))
+					catch unreachable;
+			}
+			return loc;
+		},
+		13 => {
+			loc.* = Expr{
+				.ALL = .{
+					.predicate = generate_composable_predicate(mem, rng),
+					.collecction = Set.init(mem.*)
+				}
+			};
+			const cardinality = rng.intRangeAtMost(u64, 1, 4);
+			for (0..cardinality) |_| {
+				loc.ALL.append(choose(rng, local_universe))
+					catch unreachable;
+			}
+			return loc;
+		},
+		14 => {
+			loc.* = Expr{
+				.OLDEST = Set.init(mem.*)
+			};
+			const cardinality = rng.intRangeAtMost(u64, 1, 4);
+			for (0..cardinality) |_| {
+				loc.OLDEST.append(choose(rng, local_universe))
+					catch unreachable;
+			}
+			return loc;
+		},
+		15 => {
+			loc.* = Expr{
+				.YOUNGEST = Set.init(mem.*)
+			};
+			const cardinality = rng.intRangeAtMost(u64, 1, 4);
+			for (0..cardinality) |_| {
+				loc.YOUNGEST.append(choose(rng, local_universe))
+					catch unreachable;
+			}
+			return loc;
+		},
+		16 => {
+			loc.* = Expr{
+				.CONNECTED = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		17 => {
+			loc.* = Expr{
+				.MERGE = .{
+					.left = choose(rng, local_universe),
+					.right = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		18 => {
+			loc.* = Expr{
+				.DISJOINT = .{
+					.left_a = choose(rng, local_universe),
+					.right_a = choose(rng, local_universe),
+					.left_b = choose(rng, local_universe),
+					.right_b = choose(rng, local_universe)
+				}
+			};
+			return loc;
+		},
+		19 => {
+			loc.* = Expr{
+				.MONOTONIC = Set.init(mem.*)
+			};
+			const cardinality = rng.intRangeAtMost(u64, 1, 4);
+			for (0..cardinality) |_| {
+				loc.MONOTONIC.append(choose(rng, local_universe))
+					catch unreachable;
+			}
+			return loc;
+		},
+		20 => {
+			loc.* = Expr{
+				.CONSUME = choose(rng, local_universe)
+			};
+			return loc;
+		},
+		21 => {
+			loc.* = Expr{
+				.FORBIDDEN = choose(rng, local_universe)
+			};
+			return loc;
+		},
+		22 => {
+			loc.* = Expr{
+				.NOT = generate_predicate(mem, rng, local_universe, max_depth-1)
+			};
+			return loc;
+		},
+		else => {
+			unreachable;
+		}
+	}
+	unreachable;
+}
+
+pub fn generate_composable_predicate(mem: *const std.mem.Allocator, rng: std.Random) *Expr {
+	if (rng.intRangeAtMost(0, 2) == 0){
+		const loc = mem.create(Expr);
+		loc.* = noarg_atom();
+		return loc;
+	}
+	const options = 8;
+	const n = rng.intRangeAtMost(u64, 0, options-1);
+	const loc = mem.create(Expr);
+	switch (n){
+		0 => {
+			loc.* = Expr{
+				.AND = .{
+					.left = generate_composable_predicate(mem, rng),
+					.right = generate_composable_predicate(mem, rng)
+				}
+			};
+			return loc;
+		},
+		1 => {
+			loc.* = Expr{
+				.OR = .{
+					.left = generate_composable_predicate(mem, rng),
+					.right = generate_composable_predicate(mem, rng)
+				}
+			};
+			return loc;
+		},
+		2 => {
+			loc.* = Expr{
+				.XOR = .{
+					.left = generate_composable_predicate(mem, rng),
+					.right = generate_composable_predicate(mem, rng)
+				}
+			};
+			return loc;
+		},
+		3 => {
+			loc.* = Expr{
+				.LESS = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		4 => {
+			loc.* = Expr{
+				.GREATER = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		5 => {
+			loc.* = Expr{
+				.LESS = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		6 => {
+			loc.* = Expr{
+				.IN = .{
+					.sub = noarg_atom(),
+					.set = Set.init(mem.*)
+				}
+			};
+			return loc;
+		},
+		7 => {
+			loc.* = Expr{
+				.MATCH_LINEAGE = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		8 => {
+			loc.* = Expr{
+				.BEFORE = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		9 => {
+			loc.* = Expr{
+				.AFTER = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		10 => {
+			loc.* = Expr{
+				.STEP_DIFF = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		11 => {
+			loc.* = Expr{
+				.ALL_DISTINCT = Set.init(mem.*)
+			};
+			return loc;
+		},
+		12 => {
+			loc.* = Expr{
+				.ANY = .{
+					.predicate = generate_composable_predicate(mem, rng),
+					.collecction = Set.init(mem.*)
+				}
+			};
+			return loc;
+		},
+		13 => {
+			loc.* = Expr{
+				.ALL = .{
+					.predicate = generate_composable_predicate(mem, rng),
+					.collecction = Set.init(mem.*)
+				}
+			};
+			return loc;
+		},
+		14 => {
+			loc.* = Expr{
+				.OLDEST = Set.init(mem.*)
+			};
+			return loc;
+		},
+		15 => {
+			loc.* = Expr{
+				.YOUNGEST = Set.init(mem.*)
+			};
+			return loc;
+		},
+		16 => {
+			loc.* = Expr{
+				.CONNECTED = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		17 => {
+			loc.* = Expr{
+				.MERGE = .{
+					.left = noarg_atom(),
+					.right = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		18 => {
+			loc.* = Expr{
+				.DISJOINT = .{
+					.left_a = noarg_atom(),
+					.right_a = noarg_atom(),
+					.left_b = noarg_atom(),
+					.right_b = noarg_atom()
+				}
+			};
+			return loc;
+		},
+		19 => {
+			loc.* = Expr{
+				.MONOTONIC = Set.init(mem.*)
+			};
+			return loc;
+		},
+		20 => {
+			loc.* = Expr{
+				.CONSUME = noarg_atom()
+			};
+			return loc;
+		},
+		21 => {
+			loc.* = Expr{
+				.FORBIDDEN = noarg_atom()
+			};
+			return loc;
+		},
+		22 => {
+			loc.* = Expr{
+				.NOT = generate_composable_predicate(mem, rng)
+			};
+			return loc;
+		},
+		else => {
+			unreachable;
+		}
+	}
+	unreachable;
+}
+
+pub fn show_expr(expr: *Expr) void {
+	switch (expr.*){
+		.AND => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print("& ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.OR => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print("| ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.XOR => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print("^ ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.LESS => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print("< ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.GREATER => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print("> ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.EQUAL => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print("= ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.IN => {
+			std.debug.print("( ", .{});
+			show_atom(expr.IN.sub);
+			std.debug.print("in ", .{});
+			show_set(expr.IN.set);
+			std.debug.print(") ", .{});
+		},
+		.MATCH_LINEAGE => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print(">-> ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.BEFORE => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print(">> ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.AFTER => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print("<< ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.STEP_DIFF => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print(".- ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.ALL_DISTINCT => {
+			show_set(expr.ALL_DISTINCT);
+		},
+		.ANY => {
+			std.debug.print("(any ", .{});
+			show_expr(expr.ANY.predicate);
+			std.debug.print("of ", .{});
+			show_set(expr.ANY.collection);
+			std.debug.print(") ", .{});
+		},
+		.ALL => {
+			std.debug.print("(all ", .{});
+			show_expr(expr.ANY.predicate);
+			std.debug.print("of ", .{});
+			show_set(expr.ANY.collection);
+			std.debug.print(") ", .{});
+		},
+		.OLDEST => {
+			std.debug.print("old ", .{});
+			show_set(expr.OLDEST);
+		},
+		.YOUNGEST => {
+			std.debug.print("young ", .{});
+			show_set(expr.OLDEST);
+		},
+		.CONNECTED => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print("-- ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.DISJOINT => {
+			std.debug.print("( ", .{});
+			show_atom(expr.DISJOINT.left_a);
+			show_atom(expr.DISJOINT.right_a);
+			std.debug.print(") >x< ( ", .{});
+			show_atom(expr.DISJOINT.left_b);
+			show_atom(expr.DISJOINT.right_b);
+			std.debug.print(") ", .{});
+		},
+		.MONOTONIC => {
+			std.debug.print("(mono ", .{});
+			show_set(expr.MONOTONIC);
+			std.debug.print(") ", .{});
+		},
+		.CONSUME => {
+			std.debug.print("/ ", .{});
+			show_atom(expr.COMSUME);
+		},
+		.FORBIDDEN => {
+			std.debug.print("! ", .{});
+			show_atom(expr.FORBIDDEN);
+		},
+		.MERGE => {
+			std.debug.print("( ", .{});
+			show_expr(expr.AND.left);
+			std.debug.print(">-< ", .{});
+			show_expr(expr.AND.right);
+			std.debug.print(") ", .{});
+		},
+		.NOT => {
+			std.debug.print("~", .{});
+			show_expr(expr.NOT);
+		},
+		.ATOM => {
+			show_atom(expr.ATOM);
+		}
+	}
+}
+
+pub fn show_atom(atom: Atom) void {
+	switch (atom){
+		.instance => {
+			std.debug.print("[{} {} {} <- ", .{atom.instance.id, atom.instance.meta, atom.instance.created_at});
+			for (atom.instance.lineage) |ancestor| {
+				std.debug.print("{} <- ", .{});
+				show_atom(ancestor);
+			}
+			std.debug.print("] ", .{});
+		},
+		.global => {
+			std.debug.print("[{}] ", .{atom.global.id});
+		}
+	}
+}
+
+pub fn show_set(set: Set) void {
+	std.debug.print("( ", .{});
+	for (set.items) |atom| {
+		show_atom(atom);
+	}
+	std.debug.print(") ", .{});
 }
 
 const Problem = struct {
