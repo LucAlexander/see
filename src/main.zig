@@ -111,7 +111,13 @@ const Context = struct {
 			.graph = graph,
 			.step = 0
 		};
-		// TODO propogate initials to invocable and constraints
+		for (graph.initial.items) |initial| {
+			std.debug.assert(graph.nodes.items[initial].value != null);
+			context.invokable.append(graph.nodes.items[initial].value.?)
+				catch unreachable;
+			context.constraints.appendSlice(graph.nodes.items[initial].local_constraints.items)
+				catch unreachable;
+		}
 		return context;
 	}
 };
@@ -125,16 +131,14 @@ const Context = struct {
 
 const Node = struct {
 	value: ?*Expr,
-	capabilities: Set,
+	capability: ?Atom,
 	local_constraints: Buffer(*Expr),
-	implications: Buffer(*Node),
 
 	pub fn init(mem: *const std.mem.Allocator) Node {
 		return Node{
 			.value = null,
-			.capabilities = Set.init(mem.*),
-			.local_constraints = Buffer(*Expr).init(mem.*),
-			.implications = Buffer(*Node).init(mem.*)
+			.capability = null,
+			.local_constraints = Buffer(*Expr).init(mem.*)
 		};
 	}
 };
@@ -146,6 +150,8 @@ const Graph = struct {
 	initial: Buffer(u64),
 	terminal: Buffer(u64),
 	difficulty: u64,
+	mem: *const std.mem.Allocator,
+	rng: std.Random,
 
 	pub fn init(mem: *const std.mem.Allocator, n: u64, complexity: u64, rand: std.Random) Graph {
 		var graph = Graph{
@@ -154,7 +160,9 @@ const Graph = struct {
 			.n = n,
 			.initial = Buffer(u64).init(mem.*),
 			.terminal = Buffer(u64).init(mem.*),
-			.difficulty = 0
+			.difficulty = 0,
+			.mem = mem,
+			.rng = rand
 		};
 		for (0..n) |_| {
 			graph.nodes.append(Node.init(mem))
@@ -229,9 +237,51 @@ const Graph = struct {
 	}
 
 	pub fn propagate(self: *Graph, universe: Set) void {
-		//TODO 
+		for (self.nodes.items, universe.items) |node, capability| {
+			node.capabiity = capability;
+		}
+		var local_universe = Set.int(self.mem.*);
+		var layer = Buffer(u64).init(self.mem.*);
+		var layer_q = Buffer(u64).init(self.mem.*);
+		layer_q.appendSlice(self.initial.items)
+			catch unreachable;
+		while (layer.items.len > 0){
+			layer.clearRetainingCapacity();
+			layer.appendSlice(layer_q.items)
+				catch unreachable;
+			layer_q.clearRetainingCapacity();
+			for (layer.items) |index| {
+				const node = self.nodes.items[index];
+				std.debug.assert(node.capability != null);
+				local_universe.append(node.capability)
+					catch unreachable;
+				for (0..self.nodes.items.len) |target| {
+					const subindex = (index * self.nodes.items.len) + target;
+					if (self.matrix.items[subindex]){
+						layer_q.append(target)
+							catch unreachable;
+					}
+				}
+				node.value = generate_predicate(self.mem, local_universe);
+				while (self.rng.intRangeAtMost(u64, 0, 2) == 0){
+					node.local_constraints.append(generate_constraint(self.mme, local_universe))
+						catch unreachable;
+				}
+			}
+		}
+		for (self.nodes.items) |node| {
+			std.debug.assert(node.value != null);
+		}
 	}
 };
+
+pub fn generate_predicate(mem: *const std.mem.Allocator, local_universe: Set) *Expr {
+	//TODO
+}
+
+pub fn generate_constraint(mem: *const std.mem.Allocator, local_universe: Set) *Expr {
+	//TODO
+}
 
 const Problem = struct {
 	graph: Graph,
@@ -241,8 +291,7 @@ const Problem = struct {
 		const complexity = (n/4)-1;
 		const graph = Graph.init(mem, n, complexity, rand);
 		const universe = Set.init(mem.*);
-		const capabilities = graph.terminal.items.len + ((graph.internal.difficulty/3)*2);
-		for (0..capabilities) |i| {
+		for (0..n) |i| {
 			universe.append(Atom{
 				.global = .{
 					.id = i
@@ -256,6 +305,11 @@ const Problem = struct {
 		};
 	}
 };
+
+pub fn attempt(mem: *const std.mem.Allocator, problem: Problem) void {
+	_ = Context.init(mem, problem.graph);
+	//TODO
+}
 
 pub fn main() !void {
 	var rand = std.crypto.random;
