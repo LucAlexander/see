@@ -245,13 +245,16 @@ const Graph = struct {
 		var layer_q = Buffer(u64).init(self.mem.*);
 		layer_q.appendSlice(self.initial.items)
 			catch unreachable;
-		while (layer.items.len > 0){
+		while (layer_q.items.len > 0){
 			layer.clearRetainingCapacity();
 			layer.appendSlice(layer_q.items)
 				catch unreachable;
 			layer_q.clearRetainingCapacity();
 			for (layer.items) |index| {
-				var node = self.nodes.items[index];
+				var node = &self.nodes.items[index];
+				if (node.value) |_| {
+					continue;
+				}
 				if (node.capability) |capability| {
 					local_universe.append(capability)
 						catch unreachable;
@@ -267,6 +270,9 @@ const Graph = struct {
 						node.local_constraints.append(generate_predicate(self.mem, self.rng, local_universe, 3))
 							catch unreachable;
 					}
+				}
+				else{
+					std.debug.assert(false);
 				}
 			}
 		}
@@ -761,37 +767,37 @@ pub fn show_expr(expr: *Expr) void {
 		},
 		.OR => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_expr(expr.OR.left);
 			std.debug.print("| ", .{});
-			show_expr(expr.AND.right);
+			show_expr(expr.OR.right);
 			std.debug.print(") ", .{});
 		},
 		.XOR => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_expr(expr.XOR.left);
 			std.debug.print("^ ", .{});
-			show_expr(expr.AND.right);
+			show_expr(expr.XOR.right);
 			std.debug.print(") ", .{});
 		},
 		.LESS => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.LESS.left);
 			std.debug.print("< ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.LESS.right);
 			std.debug.print(") ", .{});
 		},
 		.GREATER => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.GREATER.left);
 			std.debug.print("> ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.GREATER.right);
 			std.debug.print(") ", .{});
 		},
 		.EQUAL => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.EQUAL.left);
 			std.debug.print("= ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.EQUAL.right);
 			std.debug.print(") ", .{});
 		},
 		.IN => {
@@ -803,30 +809,30 @@ pub fn show_expr(expr: *Expr) void {
 		},
 		.MATCH_LINEAGE => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.MATCH_LINEAGE.left);
 			std.debug.print(">-> ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.MATCH_LINEAGE.right);
 			std.debug.print(") ", .{});
 		},
 		.BEFORE => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.BEFORE.left);
 			std.debug.print(">> ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.BEFORE.right);
 			std.debug.print(") ", .{});
 		},
 		.AFTER => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.AFTER.left);
 			std.debug.print("<< ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.AFTER.right);
 			std.debug.print(") ", .{});
 		},
 		.STEP_DIFF => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.STEP_DIFF.left);
 			std.debug.print(".- ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.STEP_DIFF.right);
 			std.debug.print(") ", .{});
 		},
 		.ALL_DISTINCT => {
@@ -856,9 +862,9 @@ pub fn show_expr(expr: *Expr) void {
 		},
 		.CONNECTED => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.CONNECTED.left);
 			std.debug.print("-- ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.CONNECTED.right);
 			std.debug.print(") ", .{});
 		},
 		.DISJOINT => {
@@ -885,9 +891,9 @@ pub fn show_expr(expr: *Expr) void {
 		},
 		.MERGE => {
 			std.debug.print("( ", .{});
-			show_expr(expr.AND.left);
+			show_atom(expr.MERGE.left);
 			std.debug.print(">-< ", .{});
-			show_expr(expr.AND.right);
+			show_atom(expr.MERGE.right);
 			std.debug.print(") ", .{});
 		},
 		.NOT => {
@@ -973,6 +979,7 @@ pub fn main() !void {
 		}
 		for (node.local_constraints.items) |constraint| {
 			show_expr(constraint);
+			std.debug.print("\n", .{});
 		}
 	}
 }
