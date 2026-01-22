@@ -15,13 +15,13 @@ pub fn Set(comptime T: type) type {
 
 		pub fn clone(self: *Self, mem: *const std.mem.Allocator) Self {
 			var set = Self{
-				.data = Buffer(T).init(mem.*);
+				.data = Buffer(T).init(mem.*)
 			};
 			for (self.data.items) |elem| {
 				set.data.append(elem.clone(mem))
 					catch unreachable;
 			}
-			return set
+			return set;
 		}
 
 		pub fn put(self: *Self, elem: T) void {
@@ -71,13 +71,23 @@ pub fn Set(comptime T: type) type {
 }
 
 const State = struct {
-	id: u64,
-	sub: u64,
+	id: union(enum){
+		param:u64,
+		state:u64
+	},
+	sub: union(enum){
+		param:u64,
+		state:u64
+	},
 
 	pub fn init(sub: u64, id: u64) State {
 		return State{
-			.sub = sub,
-			.id = id
+			.sub = .{
+				.state=sub
+			},
+			.id = .{
+				.state=id
+			}
 		};
 	}
 
@@ -86,13 +96,11 @@ const State = struct {
 	}
 
 	pub fn eql(a: State, b: State) bool {
-		return (a.id == b.id) and (a.sub = b.sub);
+		return (a.id == b.id) and (a.sub == b.sub);
 	}
 };
 
 const Environment = Set(State);
-
-const STATE_PARAM = 0;
 
 const Rule = struct {
 	requires: Set(State),
@@ -115,36 +123,81 @@ const Rule = struct {
 		};
 	}
 	
-	pub fn apply(self: *Self, param: u64) void {
+	pub fn apply(self: *Rule, param: std.AutoHashMap(u64, u64)) bool {
 		for (self.requires.data.items) |*elem| {
-			if (elem.id == STATE_PARAM){
-				elem.id = param;
+			if (elem.id == .param){
+				if (param.get(elem.id)) |replace| {
+					elem.id = .{
+						.state = replace
+					};
+				}
+				else{
+					return false;
+				}
 			}
-			if (elem.sub == STATE_PARAM){
-				elem.sum = param;
+			if (elem.sub == .param){
+				if (param.get(elem.sub)) |replace| {
+					elem.sub = .{
+						.state = replace
+					};
+				}
+				else{
+					return false;
+				}
 			}
 		}
 		for (self.consumes.data.items) |*elem| {
-			if (elem.id == STATE_PARAM){
-				elem.id = param;
+			if (elem.id == .param){
+				if (param.get(elem.id)) |replace| {
+					elem.id = .{
+						.state = replace
+					};
+				}
+				else{
+					return false;
+				}
 			}
-			if (elem.sub == STATE_PARAM){
-				elem.sum = param;
+			if (elem.sub == .param){
+				if (param.get(elem.sub)) |replace| {
+					elem.sub = .{
+						.state = replace
+					};
+				}
+				else{
+					return false;
+				}
 			}
 		}
 		for (self.introduces.data.items) |*elem| {
-			if (elem.id == STATE_PARAM){
-				elem.id = param;
+			if (elem.id == .param){
+				if (param.get(elem.id)) |replace| {
+					elem.id = .{
+						.state = replace
+					};
+				}
+				else{
+					return false;
+				}
 			}
-			if (elem.sub == STATE_PARAM){
-				elem.sum = param;
+			if (elem.sub == .param){
+				if (param.get(elem.sub)) |replace| {
+					elem.sub = .{
+						.state = replace
+					};
+				}
+				else{
+					return false;
+				}
 			}
 		}
+		return true;
 	}
 
-	pub fn eval(self: *Rule, mem: *const std.mem.Allocator, environment: *Environment, param: u64) bool {
+	pub fn eval(self: *Rule, mem: *const std.mem.Allocator, environment: *Environment, param: std.AutoHashMap(u64, u64)) bool {
 		var applied = self.clone(mem);
-		applied.apply(param);
+		if (applied.apply(param) == false) {
+			return false;
+		}
 		for (applied.requires.data.items) |elem| {
 			if (!environment.contains(elem)){
 				return false;
@@ -179,10 +232,21 @@ const System = struct {
 			.mem = mem,
 			.rng = rng
 		};
-		const permissions = 3;
-		const users = 2;
-		const capabilities = 4;
-
+		const capabilities = rng.intRangeAtMost(u64, 8, 12);
+		const users = rng.intRangeAtMost(64, 2, 4);
+		var matrix = Buffer(bool).init(mem.*);
+		for (0..capabilities) |_| {
+			for (0..capabilities) |_| {
+				if (rng.intRangeAtMost(u64, 0, 4) == 0){
+					matrix.append(true)
+						catch unreachable;
+				}
+				else{
+					matrix.append(false)
+						catch unreachable;
+				}
+			}
+		}
 		return sys;
 	}
 };
