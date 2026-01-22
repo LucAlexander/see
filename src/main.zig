@@ -13,6 +13,17 @@ pub fn Set(comptime T: type) type {
 			};
 		}
 
+		pub fn clone(self: *Self, mem: *const std.mem.Allocator) Self {
+			var set = Self{
+				.data = Buffer(T).init(mem.*);
+			};
+			for (self.data.items) |elem| {
+				set.data.append(elem.clone(mem))
+					catch unreachable;
+			}
+			return set
+		}
+
 		pub fn put(self: *Self, elem: T) void {
 			for (self.data.items) |item| {
 				if (T.eql(elem, item)){
@@ -59,36 +70,29 @@ pub fn Set(comptime T: type) type {
 	};
 }
 
-var STATE_IDENTIFIER: u64 = 0; 
-
 const State = struct {
-	name: []u8,
 	id: u64,
+	sub: u64,
 
-	pub fn init(name: []u8) State {
-		STATE_IDENTIFIER += 1;
+	pub fn init(sub: u64, id: u64) State {
 		return State{
-			.id = STATE_IDENTIFIER,
-			.name = name
+			.sub = sub,
+			.id = id
 		};
+	}
+
+	pub fn clone(self: *State, _: *const std.mem.Allocator) State {
+		return self.*;
 	}
 
 	pub fn eql(a: State, b: State) bool {
-		return a.id == b.id;
+		return (a.id == b.id) and (a.sub = b.sub);
 	}
 };
 
-const Environment = struct {
-	state: Set(State),
-	rules: Set(Rule),
+const Environment = Set(State);
 
-	pub fn init(mem: *const std.mem.Allocator) Environment {
-		return Environment{
-			.state = Set(State).init(mem),
-			.rules = Set(Rule).init(mem)
-		};
-	}
-};
+const STATE_PARAM = 0;
 
 const Rule = struct {
 	requires: Set(State),
@@ -103,17 +107,54 @@ const Rule = struct {
 		};
 	}
 
-	pub fn evaluate(self: *Rule, environment: *Environment) bool {
-		for (self.requires.data.items) |elem| {
-			if (!environment.state.contains(elem)){
+	pub fn clone(self: *Rule, mem: *const std.mem.Allocator) Rule {
+		return Rule{
+			.requires = self.requires.clone(mem),
+			.consumes = self.consumes.clone(mem),
+			.introduces = self.introduces.clone(mem)
+		};
+	}
+	
+	pub fn apply(self: *Self, param: u64) void {
+		for (self.requires.data.items) |*elem| {
+			if (elem.id == STATE_PARAM){
+				elem.id = param;
+			}
+			if (elem.sub == STATE_PARAM){
+				elem.sum = param;
+			}
+		}
+		for (self.consumes.data.items) |*elem| {
+			if (elem.id == STATE_PARAM){
+				elem.id = param;
+			}
+			if (elem.sub == STATE_PARAM){
+				elem.sum = param;
+			}
+		}
+		for (self.introduces.data.items) |*elem| {
+			if (elem.id == STATE_PARAM){
+				elem.id = param;
+			}
+			if (elem.sub == STATE_PARAM){
+				elem.sum = param;
+			}
+		}
+	}
+
+	pub fn eval(self: *Rule, mem: *const std.mem.Allocator, environment: *Environment, param: u64) bool {
+		var applied = self.clone(mem);
+		applied.apply(param);
+		for (applied.requires.data.items) |elem| {
+			if (!environment.contains(elem)){
 				return false;
 			}
 		}
-		for (self.consumes.data.items) |elem| {
-			environment.state.remove(elem);
+		for (applied.consumes.data.items) |elem| {
+			environment.remove(elem);
 		}
-		for (self.introduces.data.items) |elem| {
-			environment.state.put(elem);
+		for (applied.introduces.data.items) |elem| {
+			environment.put(elem);
 		}
 		return true;
 	}
@@ -125,12 +166,34 @@ const Rule = struct {
 	}
 };
 
+const System = struct {
+	rules: Set(Rule),
+	env: Environment,
+	mem: *const std.mem.Allocator,
+	rng: std.Random,
+
+	pub fn init(mem: *const std.mem.Allocator, rng: std.Random) System {
+		var sys = System{
+			.rules = Set(Rule).init(mem),
+			.env = Environment.init(mem),
+			.mem = mem,
+			.rng = rng
+		};
+		const permissions = 3;
+		const users = 2;
+		const capabilities = 4;
+
+		return sys;
+	}
+};
+
 pub fn main() !void {
 	const allocator = std.heap.page_allocator;
 	var main_mem = std.heap.ArenaAllocator.init(allocator);
 	defer main_mem.deinit();
 	const mem = main_mem.allocator();
 	var rand = std.crypto.random;
-	_ = std.Random.DefaultPrng.init(rand.int(u64));
-	_ = Rule.init(&mem);
+	var prng = std.Random.DefaultPrng.init(rand.int(u64));
+	_ = System.init(&mem, prng.random());
+
 }
