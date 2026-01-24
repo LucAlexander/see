@@ -464,7 +464,7 @@ const System = struct {
 			}
 			sys.rules.put(rule);
 		}
-		const initials = rng.intRangeAtMost(u64, 0, 4);
+		const initials = rng.intRangeAtMost(u64, 2, 4);
 		for (0..initials) |_| {
 			const cap = rng.intRangeAtMost(u64, 0, capabilities-1);
 			const use = rng.intRangeAtMost(u64, 0, users-1);
@@ -546,6 +546,7 @@ const System = struct {
 		if (self.env.contains(optimal)){
 			return false;
 		}
+		self.target = optimal;
 		return true;
 	}
 
@@ -648,20 +649,18 @@ pub fn environment_contains_cap(env: Environment, cap: u64) bool {
 	return false;
 }
 
-pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64, rule_count: u64) System {
+pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64, trials: u64, steps: u64, rule_count: u64) System {
 	var systems = Buffer(System).init(mem.*);
 	var entropies = Buffer(f32).init(mem.*);
-	const n = 32;
-	const trials = 4;
 	for (0..sample_size) |_| {
 		var sys = System.init(mem, rng, rule_count);
 		systems.append(sys)
 			catch unreachable;
 		var sum:f32 = 0;
 		for (0..trials) |_| {
-			sum += sys.shannon_entropy(n);
+			sum += sys.shannon_entropy(steps);
 		}
-		sum /= trials;
+		sum /= @as(f32, @floatFromInt(trials));
 		entropies.append(sum)
 			catch unreachable;
 	}
@@ -691,7 +690,7 @@ pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64,
 	if (best.determine_target(PROBLEM_PRECISION)){
 		return best;
 	}
-	return problem(mem, rng, sample_size, rule_count);
+	return problem(mem, rng, sample_size, trials, steps, rule_count);
 }
 
 //NOTE WORLD CODE START
@@ -730,7 +729,7 @@ const Line = union(enum) {
 	}
 };
 
-const PROBLEM_PRECISION = 100;
+const PROBLEM_PRECISION = 128;
 const WORLD_SIZE = 32;
 
 const Machine = struct {
@@ -800,6 +799,6 @@ pub fn main() !void {
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
 	// var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
 	// universe.show();
-	var game = problem(&mem, prng.random(), PROBLEM_PRECISION, 8);
+	var game = problem(&mem, prng.random(), PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, 8);
 	game.show();
 }
