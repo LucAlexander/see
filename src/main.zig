@@ -17,7 +17,7 @@ pub fn Set(comptime T: type) type {
 			var set = Self{
 				.data = Buffer(T).init(mem.*)
 			};
-			for (self.data.items) |elem| {
+			for (self.data.items) |*elem| {
 				set.data.append(elem.clone(mem))
 					catch unreachable;
 			}
@@ -66,6 +66,45 @@ pub fn Set(comptime T: type) type {
 				return false;
 			}
 			return true;
+		}
+	};
+}
+
+pub fn Pop(comptime T: type) type {
+	return struct {
+		const Self = @This();
+		data: T,
+		count: u64,
+
+		pub fn init(d: T) Self {
+			return Self{
+				.data = d,
+				.count = 1
+			};
+		}
+	};
+}
+
+pub fn PopSet(comptime T: type) type {
+	return struct {
+		const Self = @This();
+		data: Buffer(Pop(T)),
+
+		pub fn init(mem: *const std.mem.Allocator) Self {
+			return Self{
+				.data = Buffer(Pop(T)).init(mem.*)
+			};
+		}
+
+		pub fn put(self: *Self, elem: T) void {
+			for (self.data.items) |*item| {
+				if (T.eql(elem, item.data)){
+					item.count += 1;
+					return;
+				}
+			}
+			self.data.append(Pop(T).init(elem))
+				catch unreachable;
 		}
 	};
 }
@@ -165,7 +204,8 @@ const Rule = struct {
 		return Rule{
 			.requires = self.requires.clone(mem),
 			.consumes = self.consumes.clone(mem),
-			.introduces = self.introduces.clone(mem)
+			.introduces = self.introduces.clone(mem),
+			.degree = 0
 		};
 	}
 
@@ -212,11 +252,36 @@ const Rule = struct {
 			self.degree += 1;
 		}
 	}
+
+	pub fn degree_is_sub(self: *Rule, degree: u64) bool {
+		for (self.requires.data.items) |*state| {
+			if (state.sub == .param){
+				if (state.sub.param == degree){
+					return true;
+				}
+			}
+		}
+		for (self.consumes.data.items) |*state| {
+			if (state.sub == .param){
+				if (state.sub.param == degree){
+					return true;
+				}
+			}
+		}
+		for (self.introduces.data.items) |*state| {
+			if (state.sub == .param){
+				if (state.sub.param == degree){
+					return true;
+				}
+			}
+		}
+		return false;
+	}
 	
 	pub fn apply(self: *Rule, param: std.AutoHashMap(u64, u64)) bool {
 		for (self.requires.data.items) |*elem| {
 			if (elem.id == .param){
-				if (param.get(elem.id)) |replace| {
+				if (param.get(elem.id.param)) |replace| {
 					elem.id = .{
 						.state = replace
 					};
@@ -226,7 +291,7 @@ const Rule = struct {
 				}
 			}
 			if (elem.sub == .param){
-				if (param.get(elem.sub)) |replace| {
+				if (param.get(elem.sub.param)) |replace| {
 					elem.sub = .{
 						.state = replace
 					};
@@ -238,7 +303,7 @@ const Rule = struct {
 		}
 		for (self.consumes.data.items) |*elem| {
 			if (elem.id == .param){
-				if (param.get(elem.id)) |replace| {
+				if (param.get(elem.id.param)) |replace| {
 					elem.id = .{
 						.state = replace
 					};
@@ -248,7 +313,7 @@ const Rule = struct {
 				}
 			}
 			if (elem.sub == .param){
-				if (param.get(elem.sub)) |replace| {
+				if (param.get(elem.sub.param)) |replace| {
 					elem.sub = .{
 						.state = replace
 					};
@@ -260,7 +325,7 @@ const Rule = struct {
 		}
 		for (self.introduces.data.items) |*elem| {
 			if (elem.id == .param){
-				if (param.get(elem.id)) |replace| {
+				if (param.get(elem.id.param)) |replace| {
 					elem.id = .{
 						.state = replace
 					};
@@ -270,7 +335,7 @@ const Rule = struct {
 				}
 			}
 			if (elem.sub == .param){
-				if (param.get(elem.sub)) |replace| {
+				if (param.get(elem.sub.param)) |replace| {
 					elem.sub = .{
 						.state = replace
 					};
@@ -294,7 +359,7 @@ const Rule = struct {
 			}
 		}
 		for (applied.consumes.data.items) |elem| {
-			environment.remove(elem);
+			_ = environment.remove(elem);
 		}
 		for (applied.introduces.data.items) |elem| {
 			environment.put(elem);
@@ -304,7 +369,7 @@ const Rule = struct {
 
 	pub fn eql(a: Rule, b: Rule) bool {
 		return (Set(State).eql(a.requires, b.requires))
-			and (Set(State).eql(a.consume, b.consume))
+			and (Set(State).eql(a.consumes, b.consumes))
 			and (Set(State).eql(a.introduces, b.introduces));
 	}
 
@@ -330,16 +395,22 @@ const System = struct {
 	env: Environment,
 	mem: *const std.mem.Allocator,
 	rng: std.Random,
+	capabilities: u64,
+	users: u64,
 
 	pub fn init(mem: *const std.mem.Allocator, rng: std.Random) System {
-		const sys = System{
+		var sys = System{
 			.rules = Set(Rule).init(mem),
 			.env = Environment.init(mem),
 			.mem = mem,
-			.rng = rng
+			.rng = rng,
+			.capabilities = 0,
+			.users = 0
 		};
 		const capabilities = rng.intRangeAtMost(u64, 8, 12);
 		const users = rng.intRangeAtMost(u64, 2, 4);
+		sys.capabilities = capabilities;
+		sys.users = users;
 		const rules = rng.intRangeAtMost(u64, 8, 16);
 		for (0..rules) |_| {
 			var rule = Rule.init(mem);
@@ -375,9 +446,68 @@ const System = struct {
 					rule.parametric_on_id(param);
 				}
 			}
-			rule.show();
+			sys.rules.put(rule);
+		}
+		const initials = rng.intRangeAtMost(u64, 0, 4);
+		for (0..initials) |_| {
+			const cap = rng.intRangeAtMost(u64, 0, capabilities-1);
+			const use = rng.intRangeAtMost(u64, 0, users-1);
+			const state = State.init(cap, use);
+			sys.env.put(state);
 		}
 		return sys;
+	}
+
+	pub fn shannon_entropy(self: *System, n: u64) f32 {
+		var env = self.env.clone(self.mem);
+		var step: u64 = 0;
+		var stop = n*2;
+		var count = PopSet(State).init(self.mem);
+		while (step < n) {
+			var rule = self.rules.data.items[self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1)];
+			var param = std.AutoHashMap(u64, u64).init(self.mem.*);
+			for (0..rule.degree) |target| {
+				if (rule.degree_is_sub(target)){
+					var cap:u64 = 0;
+					while (true) {
+						cap = self.rng.intRangeAtMost(u64, 0, self.capabilities-1);
+						if (environment_contains_cap(env, cap)){
+							break;
+						}
+					}
+					param.put(cap, target)
+						catch unreachable;
+				}
+				else {
+					var use:u64 = 0;
+					while (true){
+						use = self.rng.intRangeAtMost(u64, 0, self.users-1);
+						if (environment_contains_user(env, use)){
+							break;
+						}
+					}
+					param.put(use, target)
+						catch unreachable;
+				}
+			}
+			if (rule.eval(self.mem, &env, param)) {
+				step += 1;
+				stop = n*2;
+				for (env.data.items) |state| {
+					count.put(state);
+				}
+			}
+			if (stop == 0){
+				break;
+			}
+			stop -= 1;
+		}
+		var sum:f32 = 0;
+		for (count.data.items) |pop| {
+			const s: f32 = @as(f32, @floatFromInt(pop.count)) / @as(f32, @floatFromInt(n));
+			sum += s * std.math.log2(s);
+		}
+		return sum;
 	}
 
 	pub fn show(self: *System) void {
@@ -387,6 +517,62 @@ const System = struct {
 	}
 };
 
+pub fn environment_contains_user(env: Environment, user: u64) bool {
+	for (env.data.items) |state| {
+		std.debug.assert(state.id == .state);
+		if (state.id.state == user){
+			return true;
+		}
+	}
+	return false;
+}
+
+pub fn environment_contains_cap(env: Environment, cap: u64) bool {
+	for (env.data.items) |state| {
+		std.debug.assert(state.sub == .state);
+		if (state.sub.state == cap){
+			return true;
+		}
+	}
+	return false;
+}
+
+pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64) System {
+	var systems = Buffer(System).init(mem.*);
+	var entropies = Buffer(f32).init(mem.*);
+	const n = 32;
+	for (0..sample_size) |_| {
+		var sys = System.init(mem, rng);
+		systems.append(sys)
+			catch unreachable;
+		entropies.append(sys.shannon_entropy(n))
+			catch unreachable;
+	}
+	for (0..systems.items.len) |i| {
+		for (i..systems.items.len) |j| {
+			if (entropies.items[i] < entropies.items[j]){
+				const temp = entropies.items[i];
+				entropies.items[i] = entropies.items[j];
+				entropies.items[j] = temp;
+				const systemp = systems.items[i];
+				systems.items[i] = systems.items[j];
+				systems.items[j] = systemp;
+			}
+		}
+	}
+	const target = (entropies.items[entropies.items.len-1]-entropies.items[0])/2;
+	var closest:u64 = 0;
+	var close_diff:f32 = @abs(entropies.items[0]-target);
+	for (1..systems.items.len) |i| {
+		const diff = @abs(entropies.items[i] - target);
+		if (diff < close_diff){
+			close_diff = diff;
+			closest = i;
+		}
+	}
+	return systems.items[closest];
+}
+
 pub fn main() !void {
 	const allocator = std.heap.page_allocator;
 	var main_mem = std.heap.ArenaAllocator.init(allocator);
@@ -394,7 +580,6 @@ pub fn main() !void {
 	const mem = main_mem.allocator();
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
-	var sys = System.init(&mem, prng.random());
+	var sys = problem(&mem, prng.random(), 100);
 	sys.show();
-
 }
