@@ -227,17 +227,17 @@ const Rule = struct {
 	pub fn parametric_on_sub(self: *Rule, param: u64) void {
 		var found = false;
 		for (self.requires.data.items) |*state| {
-			if (state.parameterize_sub(param, self.degree)){
+			if (state.parameterize_sub(self.degree, param)){
 				found = true;
 			}
 		}
 		for (self.consumes.data.items) |*state| {
-			if (state.parameterize_sub(param, self.degree)){
+			if (state.parameterize_sub(self.degree, param)){
 				found = true;
 			}
 		}
 		for (self.introduces.data.items) |*state| {
-			if (state.parameterize_sub(param, self.degree)){
+			if (state.parameterize_sub(self.degree, param)){
 				found = true;
 			}
 		}
@@ -249,17 +249,17 @@ const Rule = struct {
 	pub fn parametric_on_id(self: *Rule, param: u64) void {
 		var found = false;
 		for (self.requires.data.items) |*state| {
-			if (state.parameterize_id(param, self.degree)){
+			if (state.parameterize_id(self.degree, param)){
 				found = true;
 			}
 		}
 		for (self.consumes.data.items) |*state| {
-			if (state.parameterize_id(param, self.degree)){
+			if (state.parameterize_id(self.degree, param)){
 				found = true;
 			}
 		}
 		for (self.introduces.data.items) |*state| {
-			if (state.parameterize_id(param, self.degree)){
+			if (state.parameterize_id(self.degree, param)){
 				found = true;
 			}
 		}
@@ -412,21 +412,22 @@ const System = struct {
 	rng: std.Random,
 	capabilities: u64,
 	users: u64,
+	target: State,
 
-	pub fn init(mem: *const std.mem.Allocator, rng: std.Random) System {
+	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, rules: u64) System {
 		var sys = System{
 			.rules = Set(Rule).init(mem),
 			.env = Environment.init(mem),
 			.mem = mem,
 			.rng = rng,
 			.capabilities = 0,
-			.users = 0
+			.users = 0,
+			.target = State.init(0, 0)
 		};
 		const capabilities = rng.intRangeAtMost(u64, 8, 12);
 		const users = rng.intRangeAtMost(u64, 2, 4);
 		sys.capabilities = capabilities;
 		sys.users = users;
-		const rules = rng.intRangeAtMost(u64, 8, 16);
 		for (0..rules) |_| {
 			var rule = Rule.init(mem);
 			var n = rng.intRangeAtMost(u64, 0, 4);
@@ -472,6 +473,82 @@ const System = struct {
 		}
 		return sys;
 	}
+
+	pub fn determine_target(self: *System, n: u64) bool {
+		var count = PopSet(State).init(self.mem);
+		var iterations: u64 = 0;
+		while (iterations < n){
+			iterations += 1;
+			var env = self.env.clone(self.mem);
+			var stop = n*2;
+			var step: u64 = 0;
+			outer:while (step < n) {
+				var rule = self.rules.data.items[self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1)];
+				var param = std.AutoHashMap(u64, u64).init(self.mem.*);
+				for (0..rule.degree) |target| {
+					if (rule.degree_is_sub(target)){
+						var cap:u64 = 0;
+						var inner_stop:u64 = n;
+						while (true) {
+							cap = self.rng.intRangeAtMost(u64, 0, self.capabilities-1);
+							if (environment_contains_cap(env, cap)){
+								break;
+							}
+							inner_stop -= 1;
+							if (inner_stop == 0){
+								step += 1;
+								continue :outer;
+							}
+						}
+						param.put(cap, target)
+							catch unreachable;
+					}
+					else {
+						var use:u64 = 0;
+						var inner_stop: u64 = n;
+						while (true){
+							use = self.rng.intRangeAtMost(u64, 0, self.users-1);
+							if (environment_contains_user(env, use)){
+								break;
+							}
+							inner_stop -= 1;
+							if (inner_stop == 0){
+								step += 1;
+								continue :outer;
+							}
+						}
+						param.put(use, target)
+							catch unreachable;
+					}
+				}
+				if (rule.eval(self.mem, &env, param)) {
+					step += 1;
+					stop = n*2;
+					for (env.data.items) |state| {
+						count.put(state);
+					}
+				}
+				if (stop == 0){
+					break;
+				}
+				stop -= 1;
+			}
+		}
+		var min: u64 = 0;
+		var min_pop: u64 = count.data.items[0].count;
+		for (count.data.items, 0..) |pop, i| {
+			if (pop.count < min_pop) {
+				min_pop = pop.count;
+				min = i;
+			}
+		}
+		const optimal = count.data.items[min].data;
+		if (self.env.contains(optimal)){
+			return false;
+		}
+		return true;
+	}
+
 
 	pub fn shannon_entropy(self: *System, n: u64) f32 {
 		var env = self.env.clone(self.mem);
@@ -541,6 +618,13 @@ const System = struct {
 		for (self.rules.data.items) |*rule| {
 			rule.show();
 		}
+		std.debug.print("Starting environment: ", .{});
+		for (self.env.data.items) |*state| {
+			state.show();
+		}
+		std.debug.print("\nTarget capability: ", .{});
+		self.target.show();
+		std.debug.print("\n", .{});
 	}
 };
 
@@ -564,13 +648,13 @@ pub fn environment_contains_cap(env: Environment, cap: u64) bool {
 	return false;
 }
 
-pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64) System {
+pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64, rule_count: u64) System {
 	var systems = Buffer(System).init(mem.*);
 	var entropies = Buffer(f32).init(mem.*);
 	const n = 32;
 	const trials = 4;
 	for (0..sample_size) |_| {
-		var sys = System.init(mem, rng);
+		var sys = System.init(mem, rng, rule_count);
 		systems.append(sys)
 			catch unreachable;
 		var sum:f32 = 0;
@@ -603,8 +687,14 @@ pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64)
 			closest = i;
 		}
 	}
-	return systems.items[closest];
+	var best = systems.items[closest];
+	if (best.determine_target(PROBLEM_PRECISION)){
+		return best;
+	}
+	return problem(mem, rng, sample_size, rule_count);
 }
+
+//NOTE WORLD CODE START
 
 const Proc = struct {
 	degree: u64,
@@ -652,7 +742,7 @@ const Machine = struct {
 		};
 		for (0 .. service_count) |_| {
 			if (rng.intRangeAtMost(u64, 0, 2) == 0){
-				mach.services.append(problem(mem, rng, PROBLEM_PRECISION))
+				mach.services.append(problem(mem, rng, PROBLEM_PRECISION, 8))
 					catch unreachable;
 			}
 			else{
@@ -675,7 +765,7 @@ const Universe = struct{
 		};
 		var pool = Buffer(System).init(mem.*);
 		for (0..n*4) |i| {
-			pool.append(problem(mem, rng, PROBLEM_PRECISION))
+			pool.append(problem(mem, rng, PROBLEM_PRECISION, 8))
 				catch unreachable;
 			std.debug.print("\r{}%", .{(i*100)/(n*4)});
 		}
@@ -699,6 +789,8 @@ const Universe = struct{
 	}
 };
 
+//NOTE WORLD CODE END
+
 pub fn main() !void {
 	const allocator = std.heap.page_allocator;
 	var main_mem = std.heap.ArenaAllocator.init(allocator);
@@ -706,6 +798,8 @@ pub fn main() !void {
 	const mem = main_mem.allocator();
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
-	var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
-	universe.show();
+	// var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
+	// universe.show();
+	var game = problem(&mem, prng.random(), PROBLEM_PRECISION, 8);
+	game.show();
 }
