@@ -159,8 +159,23 @@ const State = struct {
 	}
 
 	pub fn eql(a: State, b: State) bool {
-		std.debug.assert(a.id == .state and b.id == .state and a.sub == .state and b.sub == .state);
-		return (a.id.state == b.id.state) and (a.sub.state == b.sub.state);
+		if (a.id == .state and b.id == .state){
+			if (a.sub == .state and b.sub == .state){
+				return (a.id.state == b.id.state) and (a.sub.state == b.sub.state);
+			}
+			if (a.sub == .param and b.sub == .param){
+				return (a.id.state == b.id.state) and (a.sub.param == b.sub.param);
+			}
+		}
+		if (a.id == .param and b.id == .param){
+			if (a.sub == .param and b.sub == .param){
+				return (a.id.param == b.id.param) and (a.sub.param == b.sub.param);
+			}
+			if (a.sub == .state and b.sub == .state){
+				return (a.id.param == b.id.param) and (a.sub.state == b.sub.state);
+			}
+		}
+		return false;
 	}
 	
 	pub fn show(self: *State) void {
@@ -463,16 +478,21 @@ const System = struct {
 		var step: u64 = 0;
 		var stop = n*2;
 		var count = PopSet(State).init(self.mem);
-		while (step < n) {
+		outer:while (step < n) {
 			var rule = self.rules.data.items[self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1)];
 			var param = std.AutoHashMap(u64, u64).init(self.mem.*);
 			for (0..rule.degree) |target| {
 				if (rule.degree_is_sub(target)){
 					var cap:u64 = 0;
+					var inner_stop:u64 = n;
 					while (true) {
 						cap = self.rng.intRangeAtMost(u64, 0, self.capabilities-1);
 						if (environment_contains_cap(env, cap)){
 							break;
+						}
+						inner_stop -= 1;
+						if (inner_stop == 0){
+							continue :outer;
 						}
 					}
 					param.put(cap, target)
@@ -480,10 +500,15 @@ const System = struct {
 				}
 				else {
 					var use:u64 = 0;
+					var inner_stop: u64 = n;
 					while (true){
 						use = self.rng.intRangeAtMost(u64, 0, self.users-1);
 						if (environment_contains_user(env, use)){
 							break;
+						}
+						inner_stop -= 1;
+						if (inner_stop == 0){
+							continue :outer;
 						}
 					}
 					param.put(use, target)
