@@ -566,11 +566,17 @@ pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64)
 	var systems = Buffer(System).init(mem.*);
 	var entropies = Buffer(f32).init(mem.*);
 	const n = 32;
+	const trials = 4;
 	for (0..sample_size) |_| {
 		var sys = System.init(mem, rng);
 		systems.append(sys)
 			catch unreachable;
-		entropies.append(sys.shannon_entropy(n))
+		var sum:f32 = 0;
+		for (0..trials) |_| {
+			sum += sys.shannon_entropy(n);
+		}
+		sum /= trials;
+		entropies.append(sum)
 			catch unreachable;
 	}
 	for (0..systems.items.len) |i| {
@@ -598,6 +604,95 @@ pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64)
 	return systems.items[closest];
 }
 
+const Proc = struct {
+	degree: u64,
+	body: Buffer(Line)
+};
+
+const Data = union(enum) {
+	data: u64,
+	param: u64
+};
+
+const Line = union(enum) {
+	read: struct {
+		variable: Data,
+		capability: Data
+	},
+	write: struct {
+		capability: Data,
+		user: Data
+	},
+	remove: struct {
+		capability: Data,
+		user: Data
+	},
+	call: struct {
+		machine: u64,
+		service: u64
+	},
+	conditional: struct {
+		user: Data,
+		variable: Data,
+		body: ?Buffer(Line)
+	}
+};
+
+const PROBLEM_PRECISION = 100;
+const WORLD_SIZE = 32;
+
+const Machine = struct {
+	services: Buffer(System),
+
+	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, service_count: u64, pool: Buffer(System)) Machine {
+		var mach = Machine{
+			.services = Buffer(System).init(mem.*)
+		};
+		for (0 .. service_count) |_| {
+			if (rng.intRangeAtMost(u64, 0, 2) == 0){
+				mach.services.append(problem(mem, rng, PROBLEM_PRECISION))
+					catch unreachable;
+			}
+			else{
+				const index = rng.intRangeAtMost(u64, 0, pool.items.len-1);
+				const service = pool.items[index];
+				mach.services.append(service)
+					catch unreachable;
+			}
+		}
+		return mach;
+	}
+};
+
+const Universe = struct{
+	machines: Buffer(Machine),
+
+	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, n: u64) Universe {
+		var uni = Universe{
+			.machines = Buffer(Machine).init(mem.*)
+		};
+		var pool = Buffer(System).init(mem.*);
+		for (0..n*4) |_| {
+			pool.append(problem(mem, rng, PROBLEM_PRECISION))
+				catch unreachable;
+		}
+		for (0..n) |_| {
+			const service_count = rng.intRangeAtMost(u64, 1, 4);
+			uni.machines.append(Machine.init(mem, rng, service_count, pool))
+				catch unreachable;
+		}
+		return uni;
+	}
+	
+	pub fn show(self: *Universe) void {
+		var summary:u64 = 0;
+		for (self.machines.items) |mach| {
+			summary += mach.services.items.len;
+		}
+		std.debug.print("{} machines, {} nonunique services running total\n", .{self.machines.items.len, summary});
+	}
+};
+
 pub fn main() !void {
 	const allocator = std.heap.page_allocator;
 	var main_mem = std.heap.ArenaAllocator.init(allocator);
@@ -605,6 +700,6 @@ pub fn main() !void {
 	const mem = main_mem.allocator();
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
-	var sys = problem(&mem, prng.random(), 100);
-	sys.show();
+	var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
+	universe.show();
 }
