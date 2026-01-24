@@ -492,6 +492,7 @@ const System = struct {
 						}
 						inner_stop -= 1;
 						if (inner_stop == 0){
+							step += 1;
 							continue :outer;
 						}
 					}
@@ -508,6 +509,7 @@ const System = struct {
 						}
 						inner_stop -= 1;
 						if (inner_stop == 0){
+							step += 1;
 							continue :outer;
 						}
 					}
@@ -672,15 +674,19 @@ const Universe = struct{
 			.machines = Buffer(Machine).init(mem.*)
 		};
 		var pool = Buffer(System).init(mem.*);
-		for (0..n*4) |_| {
+		for (0..n*4) |i| {
 			pool.append(problem(mem, rng, PROBLEM_PRECISION))
 				catch unreachable;
+			std.debug.print("\r{}%", .{(i*100)/(n*4)});
 		}
-		for (0..n) |_| {
+		std.debug.print("\n", .{});
+		for (0..n) |i| {
 			const service_count = rng.intRangeAtMost(u64, 1, 4);
 			uni.machines.append(Machine.init(mem, rng, service_count, pool))
 				catch unreachable;
+			std.debug.print("\r{}%", .{(i*100)/(n)});
 		}
+		std.debug.print("\n", .{});
 		return uni;
 	}
 	
