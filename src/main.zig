@@ -476,6 +476,7 @@ const System = struct {
 
 	pub fn determine_target(self: *System, n: u64) bool {
 		var count = PopSet(State).init(self.mem);
+		defer count.data.deinit();
 		var iterations: u64 = 0;
 		while (iterations < n){
 			iterations += 1;
@@ -550,12 +551,81 @@ const System = struct {
 		return true;
 	}
 
+	pub fn min_steps_to_target(self: *System, n: u64) u64 {
+		var count:u64 = 1000;
+		var iterations: u64 = 0;
+		iterator: while (iterations < n){
+			iterations += 1;
+			var env = self.env.clone(self.mem);
+			var stop = n*2;
+			var step: u64 = 0;
+			outer:while (step < n) {
+				var rule = self.rules.data.items[self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1)];
+				var param = std.AutoHashMap(u64, u64).init(self.mem.*);
+				for (0..rule.degree) |target| {
+					if (rule.degree_is_sub(target)){
+						var cap:u64 = 0;
+						var inner_stop:u64 = n;
+						while (true) {
+							cap = self.rng.intRangeAtMost(u64, 0, self.capabilities-1);
+							if (environment_contains_cap(env, cap)){
+								break;
+							}
+							inner_stop -= 1;
+							if (inner_stop == 0){
+								step += 1;
+								continue :outer;
+							}
+						}
+						param.put(cap, target)
+							catch unreachable;
+					}
+					else {
+						var use:u64 = 0;
+						var inner_stop: u64 = n;
+						while (true){
+							use = self.rng.intRangeAtMost(u64, 0, self.users-1);
+							if (environment_contains_user(env, use)){
+								break;
+							}
+							inner_stop -= 1;
+							if (inner_stop == 0){
+								step += 1;
+								continue :outer;
+							}
+						}
+						param.put(use, target)
+							catch unreachable;
+					}
+				}
+				if (rule.eval(self.mem, &env, param)) {
+					step += 1;
+					stop = n*2;
+					for (env.data.items) |state| {
+						if (State.eql(state, self.target)){
+							if (step < count){
+								count = step;
+								iterations += 1;
+								continue :iterator;
+							}
+						}
+					}
+				}
+				if (stop == 0){
+					break;
+				}
+				stop -= 1;
+			}
+		}
+		return count;
+	}
 
 	pub fn shannon_entropy(self: *System, n: u64) f32 {
 		var env = self.env.clone(self.mem);
 		var step: u64 = 0;
 		var stop = n*2;
 		var count = PopSet(State).init(self.mem);
+		defer count.data.deinit();
 		outer:while (step < n) {
 			var rule = self.rules.data.items[self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1)];
 			var param = std.AutoHashMap(u64, u64).init(self.mem.*);
@@ -649,9 +719,11 @@ pub fn environment_contains_cap(env: Environment, cap: u64) bool {
 	return false;
 }
 
-pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64, trials: u64, steps: u64, rule_count: u64) System {
+pub fn attempt_problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64, trials: u64, steps: u64, rule_count: u64) ?System {
 	var systems = Buffer(System).init(mem.*);
+	defer systems.deinit();
 	var entropies = Buffer(f32).init(mem.*);
+	defer entropies.deinit();
 	for (0..sample_size) |_| {
 		var sys = System.init(mem, rng, rule_count);
 		systems.append(sys)
@@ -690,7 +762,22 @@ pub fn problem(mem: *const std.mem.Allocator, rng: std.Random, sample_size: u64,
 	if (best.determine_target(PROBLEM_PRECISION)){
 		return best;
 	}
-	return problem(mem, rng, sample_size, trials, steps, rule_count);
+	return null;
+}
+
+pub fn problem(rng: std.Random, sample_size: u64, trials: u64, steps: u64, rule_count: u64, max_retries: u64) ?System {
+	var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+	var mem = arena.allocator();
+	for (0..max_retries) |_| {
+		_ = arena.reset(.retain_capacity);
+		var best = attempt_problem(&mem, rng, sample_size, trials, steps, rule_count);
+		if (best) |_| {
+			if (best.?.min_steps_to_target(PROBLEM_PRECISION) >= 3){
+				return best;
+			}
+		}
+	}
+	return null;
 }
 
 //NOTE WORLD CODE START
@@ -729,7 +816,7 @@ const Line = union(enum) {
 	}
 };
 
-const PROBLEM_PRECISION = 128;
+const PROBLEM_PRECISION = 8;
 const WORLD_SIZE = 32;
 
 const Machine = struct {
@@ -791,14 +878,16 @@ const Universe = struct{
 //NOTE WORLD CODE END
 
 pub fn main() !void {
-	const allocator = std.heap.page_allocator;
-	var main_mem = std.heap.ArenaAllocator.init(allocator);
-	defer main_mem.deinit();
-	const mem = main_mem.allocator();
+	//const allocator = std.heap.page_allocator;
+	//var main_mem = std.heap.ArenaAllocator.init(allocator);
+	//defer main_mem.deinit();
+	//const mem = main_mem.allocator();
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
 	// var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
 	// universe.show();
-	var game = problem(&mem, prng.random(), PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, 8);
-	game.show();
+	var game = problem(prng.random(), PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, 8, 100);
+	if (game) |_| {
+		game.?.show();
+	}
 }
