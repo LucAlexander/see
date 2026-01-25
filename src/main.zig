@@ -474,6 +474,18 @@ const System = struct {
 		return sys;
 	}
 
+	pub fn clone(self: *System, mem: *const std.mem.Allocator) System {
+		return System{
+			.rules = self.rules.clone(mem),
+			.env = self.env.clone(mem),
+			.mem = mem,
+			.rng = self.rng,
+			.capabilities = self.capabilities,
+			.users = self.users,
+			.target = self.target.clone(mem)
+		};
+	}
+
 	pub fn determine_target(self: *System, n: u64) bool {
 		var count = PopSet(State).init(self.mem);
 		defer count.data.deinit();
@@ -534,6 +546,9 @@ const System = struct {
 				}
 				stop -= 1;
 			}
+		}
+		if (count.data.items.len == 0){
+			return false;
 		}
 		var min: u64 = 0;
 		var min_pop: u64 = count.data.items[0].count;
@@ -765,7 +780,7 @@ pub fn attempt_problem(mem: *const std.mem.Allocator, rng: std.Random, sample_si
 	return null;
 }
 
-pub fn problem(rng: std.Random, sample_size: u64, trials: u64, steps: u64, rule_count: u64, max_retries: u64) ?System {
+pub fn problem(owner: *const std.mem.Allocator, rng: std.Random, sample_size: u64, trials: u64, steps: u64, rule_count: u64, max_retries: u64) ?System {
 	var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 	var mem = arena.allocator();
 	for (0..max_retries) |_| {
@@ -773,7 +788,7 @@ pub fn problem(rng: std.Random, sample_size: u64, trials: u64, steps: u64, rule_
 		var best = attempt_problem(&mem, rng, sample_size, trials, steps, rule_count);
 		if (best) |_| {
 			if (best.?.min_steps_to_target(PROBLEM_PRECISION) >= 3){
-				return best;
+				return best.?.clone(owner);
 			}
 		}
 	}
@@ -828,8 +843,10 @@ const Machine = struct {
 		};
 		for (0 .. service_count) |_| {
 			if (rng.intRangeAtMost(u64, 0, 2) == 0){
-				mach.services.append(problem(mem, rng, PROBLEM_PRECISION, 8))
-					catch unreachable;
+				if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, 8, 20)) |service| {
+					mach.services.append(service)
+						catch unreachable;
+				}
 			}
 			else{
 				const index = rng.intRangeAtMost(u64, 0, pool.items.len-1);
@@ -851,8 +868,10 @@ const Universe = struct{
 		};
 		var pool = Buffer(System).init(mem.*);
 		for (0..n*4) |i| {
-			pool.append(problem(mem, rng, PROBLEM_PRECISION, 8))
-				catch unreachable;
+			if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, 8, 20)) |sys| {
+				pool.append(sys)
+					catch unreachable;
+			}
 			std.debug.print("\r{}%", .{(i*100)/(n*4)});
 		}
 		std.debug.print("\n", .{});
@@ -878,16 +897,12 @@ const Universe = struct{
 //NOTE WORLD CODE END
 
 pub fn main() !void {
-	//const allocator = std.heap.page_allocator;
-	//var main_mem = std.heap.ArenaAllocator.init(allocator);
-	//defer main_mem.deinit();
-	//const mem = main_mem.allocator();
+	const allocator = std.heap.page_allocator;
+	var main_mem = std.heap.ArenaAllocator.init(allocator);
+	defer main_mem.deinit();
+	const mem = main_mem.allocator();
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
-	// var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
-	// universe.show();
-	var game = problem(prng.random(), PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, 8, 100);
-	if (game) |_| {
-		game.?.show();
-	}
+	var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
+	universe.show();
 }
