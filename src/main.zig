@@ -587,7 +587,79 @@ const System = struct {
 		return true;
 	}
 
-	pub fn 
+	pub fn permutation_min_steps_to_target(self: *System, venv: *Environment, n: u64) ?u64 {
+		var count: ?u64 = null;
+		var iterations: u64 = 0;
+		iterator: while (iterations < n){
+			iterations += 1;
+			var env = venv.clone(self.mem);
+			var stop = n*2;
+			var step: u64 = 0;
+			outer:while (step < n) {
+				var rule = self.rules.data.items[self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1)];
+				var param = std.AutoHashMap(u64, u64).init(self.mem.*);
+				for (0..rule.degree) |target| {
+					if (rule.degree_is_sub(target)){
+						var cap:u64 = 0;
+						var inner_stop:u64 = n;
+						while (true) {
+							cap = self.rng.intRangeAtMost(u64, 0, self.capabilities-1);
+							if (environment_contains_cap(env, cap)){
+								break;
+							}
+							inner_stop -= 1;
+							if (inner_stop == 0){
+								step += 1;
+								continue :outer;
+							}
+						}
+						param.put(cap, target)
+							catch unreachable;
+					}
+					else {
+						var use:u64 = 0;
+						var inner_stop: u64 = n;
+						while (true){
+							use = self.rng.intRangeAtMost(u64, 0, self.users-1);
+							if (environment_contains_user(env, use)){
+								break;
+							}
+							inner_stop -= 1;
+							if (inner_stop == 0){
+								step += 1;
+								continue :outer;
+							}
+						}
+						param.put(use, target)
+							catch unreachable;
+					}
+				}
+				if (rule.eval(self.mem, &env, param)) {
+					step += 1;
+					stop = n*2;
+					for (env.data.items) |state| {
+						if (State.eql(state, self.target)){
+							if (count == null){
+								count = step;
+								iterations += 1;
+								continue :iterator;
+							}
+							if (step < count){
+								count = step;
+								iterations += 1;
+								continue :iterator;
+							}
+						}
+					}
+				}
+				if (stop == 0){
+					break;
+				}
+				stop -= 1;
+			}
+		}
+		return count;
+	}
 
 	pub fn min_steps_to_target(self: *System, n: u64) u64 {
 		var count:u64 = 1000;
@@ -723,24 +795,49 @@ const System = struct {
 		return sum;
 	}
 
-	pub fn defensive_action_permutation(self: *System, rule: *Rule, env: *Environment, param: *std.AutoHashMap(u64, u64), permutations: []Buffer(u64), degree: u64, max_degree) void {
+	pub fn defensive_action_permutation(self: *System, rule: *Rule, env: *Environment, param: *std.AutoHashMap(u64, u64), permutations: []Buffer(u64), degree: u64, max_degree, n: u64, permutation: Buffer(u64)) PermutationPair {
 		if (degree == max_degree){
 			var venv = env.clone(self.mem);
 			if (rule.eval(self.mem, &venv, param)){
-				//TODO
+				var final_permutation = Buffer(u64).init(self.mem.*);
+				final_permuatation.appendSlice(permutation.items)
+					catch unreachable;
+				return PermutationPair{
+					arg = final_permutation,
+					val = self.permutation_min_steps_to_target(&venv, n),
+				};
 			}
-			return;
+			unreachable;
 		}
 		const layer = permutations[0];
+		max_case: ?PermutationPair = null;
 		if (rule.degree_is_sub(degree)){
 			for (0..layer.len) |i| {
 				if (!environment_contains_cap(env, layer[i])){
 					continue;
 				}
 				var param_copy = clone_AutoHashMap(u64, u64, self.mem, param);
+				defer param_copy.deinit();
 				param_copy.put(layer[i], degree)
 					catch unreachable;
-				self.defensive_action_permutation(rule, env, param_copy, permutations[1..permutations.len], degree+1, max_degree);
+				var new_permutation = Buffer(u64).init(self.mem.*);
+				new_permutation.append(permutation.items)
+					catch unreachable;
+				new_permutation.append(layer[i])
+					catch unreachable;
+				defer new_permutation.deinit();
+				const val = self.defensive_action_permutation(rule, env, param_copy, permutations[1..permutations.len], degree+1, max_degree, n, new_permutation);
+				if (val.val) |v| {
+					if (max_case == null){
+						max_case = val;
+					}
+					else if (v > max_case) {
+						max_case = val;
+					}
+				}
+				else {
+					return val;
+				}
 			}
 		}
 		else{
@@ -749,17 +846,40 @@ const System = struct {
 					continue;
 				}
 				var param_copy = clone_AutoHashMap(u64, u64, self.mem, param);
+				defer param_copy.deinit();
 				param_copy.put(layer[i], degree)
 					catch unreachable;
-				self.defensive_action_permutation(rule, env, param_copy, permutations[1..permutations.len], degree+1, max_degree);
+				var new_permutation = Buffer(u64).init(self.mem.*);
+				new_permutation.append(permutation.items)
+					catch unreachable;
+				new_permutation.append(layer[i])
+					catch unreachable;
+				defer new_permutation.deinit();
+				const val = self.defensive_action_permutation(rule, env, param_copy, permutations[1..permutations.len], degree+1, max_degree, n, new_permutation);
+				if (val.val) |v| {
+					if (max_case == null){
+						max_case = val;
+					}
+					else if (v > max_case) {
+						max_case = val;
+					}
+				}
+				else {
+					return val;
+				}
 			}
 		}
+		if (max_case) |m| {
+			return m;
+		}
+		unreachable;
 	}
 
 	pub fn defensive_action(self: *System, n: u64) void {
 		var step: u64 = 0;
 		defer count.data.deinit();
-		for (self.rules.items) |rule| {
+		var min_param_set: ?ParameterPair = null;
+		for (self.rules.items, 0..) |rule, rule_index| {
 			var param_permutations = Buffer(Buffer(u64)).init(self.mem.*);
 			for (0..rule.degree) |_| {
 				param_permutations.append(Buffer(u64).init(self.mem.*))
@@ -779,8 +899,36 @@ const System = struct {
 					}
 				}
 			}
-			self.defensive_action_permutation(&rule, &self.env, param, param_permutations.items, 0, degree);
+			var param = std.AutoHashMap(u64, u64);
+			var empty_permutation = Buffer(u64).init(self.mem.*);
+			defer empty_permutation.deinit();
+			const final_permutation = self.defensive_action_permutation(&rule, &self.env, &param, param_permutations.items, 0, degree, n, empty_permutation);
+			std.debug.assert(rule.degree == final_permutation.arg.items.len);
+			if (min_param_set == null){
+				min_index = rule_index;
+				min_param_set = final_permutation;
+				if (min_param_set.val == null){
+					break;
+				}
+				continue;
+			}
+			if (final_permutation.val) |v| {
+				if (v < min_param_set.val){
+					min_index = rule_index;
+					min_param_set.val = final_permutation;
+					continue;
+				}
+			}
 		}
+		const rule = self.rules.items[rule_index];
+		for (0..rule.degree, final_permutatoin.arg.items) |target, arg| {
+			param.put(arg, target)
+				catch unreachable;
+		}
+		if (rule.eval(self.mem, &self.env, param)) {
+			return;
+		}
+		unreachable;
 	}
 
 
@@ -878,6 +1026,11 @@ pub fn problem(owner: *const std.mem.Allocator, rng: std.Random, sample_size: u6
 	}
 	return null;
 }
+
+const PermutationPair = struct {
+	arg: Buffer(u64),
+	val: ?u64
+};
 
 //NOTE WORLD CODE START
 
