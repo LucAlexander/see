@@ -437,7 +437,7 @@ const System = struct {
 			.users = 0,
 			.target = State.init(0, 0)
 		};
-		const capabilities = rng.intRangeAtMost(u64, 8, 12);
+		const capabilities = rng.intRangeAtMost(u64, 12, 24);
 		const users = rng.intRangeAtMost(u64, 2, 4);
 		sys.capabilities = capabilities;
 		sys.users = users;
@@ -500,7 +500,7 @@ const System = struct {
 		};
 	}
 
-	pub fn determine_target(self: *System, n: u64) bool {
+	pub fn determine_target(self: *System, n: u64, max_ways: u64) bool {
 		var count = PopSet(State).init(self.mem);
 		defer count.data.deinit();
 		var iterations: u64 = 0;
@@ -573,7 +573,7 @@ const System = struct {
 				min = i;
 			}
 		}
-		if (min_pop != 1){
+		if (min_pop > max_ways){
 			return false;
 		}
 		const optimal = count.data.items[min].data;
@@ -908,6 +908,143 @@ const System = struct {
 					continue;
 				}
 				if (final_permutation.val) |v| {
+					if (v > min_param_set.?.val.?){
+						min_index = rule_index;
+						min_param_set = final_permutation;
+						continue;
+					}
+				}
+			}
+		}
+		var rule = self.rules.data.items[min_index];
+		if (min_param_set) |min| {
+			var param = std.AutoHashMap(u64, u64).init(self.mem.*);
+			for (0..rule.degree, min.arg.items) |target, arg| {
+				param.put(arg, target)
+					catch unreachable;
+			}
+			if (rule.eval(self.mem, &self.env, param)) {
+				return;
+			}
+		}
+	}
+
+	pub fn offensive_action_permutation(self: *System, rule: *Rule, env: *Environment, param: *std.AutoHashMap(u64, u64), permutations: []Buffer(u64), degree: u64, max_degree: u64, n: u64, permutation: Buffer(u64)) ?PermutationPair {
+		if (degree == max_degree){
+			var venv = env.clone(self.mem);
+			if (rule.eval(self.mem, &venv, param.*)){
+				var final_permutation = Buffer(u64).init(self.mem.*);
+				final_permutation.appendSlice(permutation.items)
+					catch unreachable;
+				return PermutationPair{
+					.arg = final_permutation,
+					.val = self.permutation_min_steps_to_target(&venv, n),
+				};
+			}
+			return null;
+		}
+		const layer = permutations[0];
+		var max_case: ?PermutationPair = null;
+		if (rule.degree_is_sub(degree)){
+			for (0..layer.items.len) |i| {
+				if (!environment_contains_cap(env.*, layer.items[i])){
+					continue;
+				}
+				var param_copy = clone_AutoHashMap(u64, u64, self.mem, param);
+				defer param_copy.deinit();
+				param_copy.put(layer.items[i], degree)
+					catch unreachable;
+				var new_permutation = Buffer(u64).init(self.mem.*);
+				new_permutation.appendSlice(permutation.items)
+					catch unreachable;
+				new_permutation.append(layer.items[i])
+					catch unreachable;
+				defer new_permutation.deinit();
+				if (self.offensive_action_permutation(rule, env, &param_copy, permutations[1..permutations.len], degree+1, max_degree, n, new_permutation)) |val| {
+					if (val.val) |v| {
+						if (max_case == null){
+							max_case = val;
+						}
+						else if (v < max_case.?.val.?) {
+							max_case = val;
+						}
+					}
+					else {
+						return val;
+					}
+				}
+			}
+		}
+		else{
+			for (0..layer.items.len) |i| {
+				if (!environment_contains_user(env.*, layer.items[i])){
+					continue;
+				}
+				var param_copy = clone_AutoHashMap(u64, u64, self.mem, param);
+				defer param_copy.deinit();
+				param_copy.put(layer.items[i], degree)
+					catch unreachable;
+				var new_permutation = Buffer(u64).init(self.mem.*);
+				new_permutation.appendSlice(permutation.items)
+					catch unreachable;
+				new_permutation.append(layer.items[i])
+					catch unreachable;
+				defer new_permutation.deinit();
+				if (self.offensive_action_permutation(rule, env, &param_copy, permutations[1..permutations.len], degree+1, max_degree, n, new_permutation)) |val| {
+					if (val.val) |v| {
+						if (max_case == null){
+							max_case = val;
+						}
+						else if (v < max_case.?.val.?) {
+							max_case = val;
+						}
+					}
+					else {
+						return val;
+					}
+				}
+			}
+		}
+		return max_case;
+	}
+
+	pub fn offensive_action(self: *System, n: u64) void {
+		var min_index: u64 = 0;
+		var min_param_set: ?PermutationPair = null;
+		for (self.rules.data.items, 0..) |*rule, rule_index| {
+			var param_permutations = Buffer(Buffer(u64)).init(self.mem.*);
+			for (0..rule.degree) |_| {
+				param_permutations.append(Buffer(u64).init(self.mem.*))
+					catch unreachable;
+			}
+			for (0..rule.degree) |target| {
+				if (rule.degree_is_sub(target)){
+					for (0..self.capabilities) |cap| {
+						param_permutations.items[target].append(cap)
+							catch unreachable;
+					}
+				}
+				else {
+					for (0..self.users) |use| {
+						param_permutations.items[target].append(use)
+							catch unreachable;
+					}
+				}
+			}
+			var param = std.AutoHashMap(u64, u64).init(self.mem.*);
+			var empty_permutation = Buffer(u64).init(self.mem.*);
+			defer empty_permutation.deinit();
+			if (self.offensive_action_permutation(rule, &self.env, &param, param_permutations.items, 0, rule.degree, n, empty_permutation)) |final_permutation| {
+				std.debug.assert(rule.degree == final_permutation.arg.items.len);
+				if (min_param_set == null){
+					min_index = rule_index;
+					min_param_set = final_permutation;
+					if (min_param_set.?.val == null){
+						break;
+					}
+					continue;
+				}
+				if (final_permutation.val) |v| {
 					if (v < min_param_set.?.val.?){
 						min_index = rule_index;
 						min_param_set = final_permutation;
@@ -929,6 +1066,26 @@ const System = struct {
 		}
 	}
 
+	pub fn battle_sim(self: *System, n: u64) u64 {
+		var sys = self.clone(self.mem);
+		var steps: u64 = 0;
+		var state: bool = false;
+		while (steps < n) {
+			if (state){
+				sys.offensive_action(PROBLEM_PRECISION);
+				sys.offensive_action(PROBLEM_PRECISION);
+			}
+			else{
+				sys.defensive_action(PROBLEM_PRECISION);
+			}
+			state = !state;
+			steps += 1;
+			if (sys.env.contains(self.target)){
+				return steps;
+			}
+		}
+		return n;
+	}
 
 	pub fn show(self: *System) void {
 		for (self.rules.data.items) |*rule| {
@@ -1004,8 +1161,11 @@ pub fn attempt_problem(mem: *const std.mem.Allocator, rng: std.Random, sample_si
 		}
 	}
 	var best = systems.items[closest];
-	if (best.determine_target(PROBLEM_PRECISION)){
-		return best;
+	if (best.determine_target(PROBLEM_PRECISION, MAX_WAYS)){
+		const min_steps = best.battle_sim(PROBLEM_PRECISION);
+		if (min_steps >= MIN_INTEREST){
+			return best;
+		}
 	}
 	return null;
 }
@@ -1064,9 +1224,12 @@ const Line = union(enum) {
 	}
 };
 
-const PROBLEM_PRECISION = 8;
+const PROBLEM_PRECISION = 16;
 const WORLD_SIZE = 128;
 const SYSTEM_SIZE = 32;
+const MAX_WAYS = 3;
+const MIN_INTEREST = 8;
+const MAX_SERVICES = 5;
 
 const Machine = struct {
 	services: Buffer(System),
@@ -1101,16 +1264,18 @@ const Universe = struct{
 			.machines = Buffer(Machine).init(mem.*)
 		};
 		var pool = Buffer(System).init(mem.*);
-		for (0..n*4) |i| {
-			if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, SYSTEM_SIZE, 20)) |sys| {
-				pool.append(sys)
-					catch unreachable;
+		while (pool.items.len == 0) {
+			for (0..n*4) |i| {
+				if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, SYSTEM_SIZE, 20)) |sys| {
+					pool.append(sys)
+						catch unreachable;
+				}
+				std.debug.print("\r{}%", .{(i*100)/(n*4)});
 			}
-			std.debug.print("\r{}%", .{(i*100)/(n*4)});
+			std.debug.print("\n", .{});
 		}
-		std.debug.print("\n", .{});
 		for (0..n) |i| {
-			const service_count = rng.intRangeAtMost(u64, 1, 4);
+			const service_count = rng.intRangeAtMost(u64, 1, MAX_SERVICES);
 			uni.machines.append(Machine.init(mem, rng, service_count, pool))
 				catch unreachable;
 			std.debug.print("\r{}%", .{(i*100)/(n)});
@@ -1130,9 +1295,6 @@ const Universe = struct{
 
 //TODO 
 // vectors of patching
-// vectors of update
-// defensive action bot
-// bot fight filtering
 // presentation layer
 // interaction layer
 
@@ -1144,6 +1306,5 @@ pub fn main() !void {
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
 	var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
-	universe.machines.items[0].services.items[0].defensive_action(PROBLEM_PRECISION);
 	universe.show();
 }
