@@ -405,6 +405,19 @@ const Rule = struct {
 	}
 };
 
+pub fn clone_AutoHashMap( comptime K: type, comptime V: type, allocator: *const std.mem.Allocator, src: *const std.AutoHashMap(K, V),
+) std.AutoHashMap(K, V) {
+    var dst = std.AutoHashMap(K, V).init(allocator.*);
+    dst.ensureTotalCapacity(src.count())
+		catch unreachable;
+    var it = src.iterator();
+    while (it.next()) |entry| {
+        dst.put(entry.key_ptr.*, entry.value_ptr.*)
+			catch unreachable;
+    }
+    return dst;
+}
+
 const System = struct {
 	rules: Set(Rule),
 	env: Environment,
@@ -428,23 +441,24 @@ const System = struct {
 		const users = rng.intRangeAtMost(u64, 2, 4);
 		sys.capabilities = capabilities;
 		sys.users = users;
+		const state_max = 2;
 		for (0..rules) |_| {
 			var rule = Rule.init(mem);
-			var n = rng.intRangeAtMost(u64, 0, 4);
+			var n = rng.intRangeAtMost(u64, 0, state_max);
 			for (0..n) |_| {
 				const cap = rng.intRangeAtMost(u64, 0, capabilities-1);
 				const use = rng.intRangeAtMost(u64, 0, users-1);
 				const state = State.init(cap, use);
 				rule.requires.put(state);
 			}
-			n = rng.intRangeAtMost(u64, 0, 4);
+			n = rng.intRangeAtMost(u64, 0, state_max);
 			for (0..n) |_| {
 				const cap = rng.intRangeAtMost(u64, 0, capabilities-1);
 				const use = rng.intRangeAtMost(u64, 0, users-1);
 				const state = State.init(cap, use);
 				rule.consumes.put(state);
 			}
-			n = rng.intRangeAtMost(u64, 0, 4);
+			n = rng.intRangeAtMost(u64, 0, state_max);
 			for (0..n) |_| {
 				const cap = rng.intRangeAtMost(u64, 0, capabilities-1);
 				const use = rng.intRangeAtMost(u64, 0, users-1);
@@ -475,7 +489,7 @@ const System = struct {
 	}
 
 	pub fn clone(self: *System, mem: *const std.mem.Allocator) System {
-		return System{
+		var sys = System{
 			.rules = self.rules.clone(mem),
 			.env = self.env.clone(mem),
 			.mem = mem,
@@ -484,6 +498,9 @@ const System = struct {
 			.users = self.users,
 			.target = self.target.clone(mem)
 		};
+		sys.target_path.appendSlice(self.target_path.items)
+			catch unreachable;
+		return sys;
 	}
 
 	pub fn determine_target(self: *System, n: u64) bool {
@@ -496,7 +513,8 @@ const System = struct {
 			var stop = n*2;
 			var step: u64 = 0;
 			outer:while (step < n) {
-				var rule = self.rules.data.items[self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1)];
+				const rule_index = self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1);
+				var rule = self.rules.data.items[rule_index];
 				var param = std.AutoHashMap(u64, u64).init(self.mem.*);
 				for (0..rule.degree) |target| {
 					if (rule.degree_is_sub(target)){
@@ -558,6 +576,9 @@ const System = struct {
 				min = i;
 			}
 		}
+		if (min_pop != 1){
+			return false;
+		}
 		const optimal = count.data.items[min].data;
 		if (self.env.contains(optimal)){
 			return false;
@@ -565,6 +586,8 @@ const System = struct {
 		self.target = optimal;
 		return true;
 	}
+
+	pub fn 
 
 	pub fn min_steps_to_target(self: *System, n: u64) u64 {
 		var count:u64 = 1000;
@@ -700,6 +723,67 @@ const System = struct {
 		return sum;
 	}
 
+	pub fn defensive_action_permutation(self: *System, rule: *Rule, env: *Environment, param: *std.AutoHashMap(u64, u64), permutations: []Buffer(u64), degree: u64, max_degree) void {
+		if (degree == max_degree){
+			var venv = env.clone(self.mem);
+			if (rule.eval(self.mem, &venv, param)){
+				//TODO
+			}
+			return;
+		}
+		const layer = permutations[0];
+		if (rule.degree_is_sub(degree)){
+			for (0..layer.len) |i| {
+				if (!environment_contains_cap(env, layer[i])){
+					continue;
+				}
+				var param_copy = clone_AutoHashMap(u64, u64, self.mem, param);
+				param_copy.put(layer[i], degree)
+					catch unreachable;
+				self.defensive_action_permutation(rule, env, param_copy, permutations[1..permutations.len], degree+1, max_degree);
+			}
+		}
+		else{
+			for (0..layer.len) |i| {
+				if (!environment_contains_use(env, layer[i])){
+					continue;
+				}
+				var param_copy = clone_AutoHashMap(u64, u64, self.mem, param);
+				param_copy.put(layer[i], degree)
+					catch unreachable;
+				self.defensive_action_permutation(rule, env, param_copy, permutations[1..permutations.len], degree+1, max_degree);
+			}
+		}
+	}
+
+	pub fn defensive_action(self: *System, n: u64) void {
+		var step: u64 = 0;
+		defer count.data.deinit();
+		for (self.rules.items) |rule| {
+			var param_permutations = Buffer(Buffer(u64)).init(self.mem.*);
+			for (0..rule.degree) |_| {
+				param_permutations.append(Buffer(u64).init(self.mem.*))
+					catch unreachable;
+			}
+			for (0..rule.degree) |target| {
+				if (rule.degree_is_sub(target)){
+					for (0..self.capabilities) |cap| {
+						param_permutations.items[target].append(cap)
+							catch unreachable;
+					}
+				}
+				else {
+					for (0..self.users) |use| {
+						param_permutations.items[target].append(use)
+							catch unreachable;
+					}
+				}
+			}
+			self.defensive_action_permutation(&rule, &self.env, param, param_permutations.items, 0, degree);
+		}
+	}
+
+
 	pub fn show(self: *System) void {
 		for (self.rules.data.items) |*rule| {
 			rule.show();
@@ -832,7 +916,8 @@ const Line = union(enum) {
 };
 
 const PROBLEM_PRECISION = 8;
-const WORLD_SIZE = 32;
+const WORLD_SIZE = 128;
+const SYSTEM_SIZE = 32;
 
 const Machine = struct {
 	services: Buffer(System),
@@ -843,7 +928,7 @@ const Machine = struct {
 		};
 		for (0 .. service_count) |_| {
 			if (rng.intRangeAtMost(u64, 0, 2) == 0){
-				if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, 8, 20)) |service| {
+				if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, SYSTEM_SIZE, 20)) |service| {
 					mach.services.append(service)
 						catch unreachable;
 				}
@@ -868,7 +953,7 @@ const Universe = struct{
 		};
 		var pool = Buffer(System).init(mem.*);
 		for (0..n*4) |i| {
-			if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, 8, 20)) |sys| {
+			if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, SYSTEM_SIZE, 20)) |sys| {
 				pool.append(sys)
 					catch unreachable;
 			}
@@ -895,6 +980,14 @@ const Universe = struct{
 };
 
 //NOTE WORLD CODE END
+
+//TODO 
+// vectors of patching
+// vectors of update
+// defensive action bot
+// bot fight filtering
+// presentation layer
+// interaction layer
 
 pub fn main() !void {
 	const allocator = std.heap.page_allocator;
