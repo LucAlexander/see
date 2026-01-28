@@ -1515,7 +1515,7 @@ pub fn write_program(prog: Program) void {
 }
 
 const PROBLEM_PRECISION = 16;
-const WORLD_SIZE = 1;
+const WORLD_SIZE = 16;
 const SYSTEM_SIZE = 32;
 const MAX_WAYS = 3;
 const MIN_INTEREST = 8;
@@ -1555,20 +1555,39 @@ const Universe = struct{
 		};
 		var pool = Buffer(System).init(mem.*);
 		while (pool.items.len == 0) {
-			for (0..n*4) |i| {
+			const max = n*4;
+			std.debug.print("Heuristically Fuzzing Software...\n", .{});
+			for (0..max) |i| {
+				const progress = i*100/max;
 				if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, SYSTEM_SIZE, 20)) |sys| {
 					pool.append(sys)
 						catch unreachable;
 				}
-				std.debug.print("\r{}%", .{(i*100)/(n*4)});
+				std.debug.print("\r[", .{});
+				for (0..progress) |_|{
+					std.debug.print("#", .{});
+				}
+				for (progress..100) |_|{
+					std.debug.print(" ", .{});
+				}
+				std.debug.print("]{}%", .{(i*100)/(max)});
 			}
 			std.debug.print("\n", .{});
 		}
+		std.debug.print("Generating Machines...\n", .{});
 		for (0..n) |i| {
 			const service_count = rng.intRangeAtMost(u64, 1, MAX_SERVICES);
 			uni.machines.append(Machine.init(mem, rng, service_count, pool))
 				catch unreachable;
-			std.debug.print("\r{}%", .{(i*100)/(n)});
+			const progress = i*100/n;
+			std.debug.print("\r[", .{});
+			for (0..progress) |_| {
+				std.debug.print("#", .{});
+			}
+			for (progress..100) |_| {
+				std.debug.print(" ", .{});
+			}
+			std.debug.print("]{}%", .{(i*100)/(n)});
 		}
 		std.debug.print("\n", .{});
 		return uni;
@@ -1583,8 +1602,27 @@ const Universe = struct{
 	}
 };
 
-//TODO 
-// interaction layer
+pub fn game(mem: *const std.mem.Allocator, rng: std.Random) void {
+	var universe = Universe.init(mem, rng, WORLD_SIZE);
+	universe.show();
+	const cwd = std.fs.cwd();
+	while (true){
+		std.time.sleep(1_000_000);
+		var file = cwd.openFile("./world.q", .{})
+			catch unreachable;
+		const stat = file.stat()
+			catch unreachable;
+		const contents = file.readToEndAlloc(mem.*, stat.size + 1)
+			catch unreachable;
+		defer mem.free(contents);
+		std.debug.print("recv: {s}\n", .{contents});
+		file.close();
+		file = cwd.createFile("./world.q", .{.truncate=true})
+			catch unreachable;
+		file.close();
+		
+	}
+}
 
 pub fn main() !void {
 	const allocator = std.heap.page_allocator;
@@ -1593,7 +1631,5 @@ pub fn main() !void {
 	const mem = main_mem.allocator();
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
-	var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
-	universe.show();
-	universe.machines.items[0].services.items[0].defend(1);
+	game(&mem, prng.random());
 }
