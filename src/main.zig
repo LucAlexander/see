@@ -1547,10 +1547,12 @@ const Machine = struct {
 };
 
 const Universe = struct{
+	mem: *const std.mem.Allocator,
 	machines: Buffer(Machine),
 
 	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, n: u64) Universe {
 		var uni = Universe{
+			.mem = mem,
 			.machines = Buffer(Machine).init(mem.*)
 		};
 		var pool = Buffer(System).init(mem.*);
@@ -1593,12 +1595,49 @@ const Universe = struct{
 		return uni;
 	}
 	
+	pub fn execute(self: *Universe, args: Buffer([]u8)) void {
+		if (args.items.len < 1){
+			return;
+		}
+		const machine = std.fmt.parseInt(u64, args.items[0], 10) catch {
+			return;
+		};
+		if (machine >= self.machines.items.len) {
+			return;
+		}
+		_ = self.machines.items[machine];
+	}
+
 	pub fn show(self: *Universe) void {
 		var summary:u64 = 0;
 		for (self.machines.items) |mach| {
 			summary += mach.services.items.len;
 		}
 		std.debug.print("{} machines, {} nonunique services running total\n", .{self.machines.items.len, summary});
+	}
+};
+
+const ArgIterator = struct {
+	contents: []u8,
+	ptr: u64,
+
+	pub fn init(contents: []u8) ArgIterator {
+		return ArgIterator{
+			.contents = contents,
+			.ptr = 0
+		};
+	}
+
+	pub fn next(self: *ArgIterator) ?[]u8 {
+		const old = self.ptr;
+		while (self.ptr < self.contents.len) {
+			if (self.contents[self.ptr] == ' '){
+				self.ptr += 1;
+				return self.contents[old..self.ptr];
+			}
+			self.ptr += 1;
+		}
+		return null;
 	}
 };
 
@@ -1612,15 +1651,23 @@ pub fn game(mem: *const std.mem.Allocator, rng: std.Random) void {
 			catch unreachable;
 		const stat = file.stat()
 			catch unreachable;
+		if (stat.size == 0){
+			continue;
+		}
 		const contents = file.readToEndAlloc(mem.*, stat.size + 1)
 			catch unreachable;
 		defer mem.free(contents);
-		std.debug.print("recv: {s}\n", .{contents});
 		file.close();
 		file = cwd.createFile("./world.q", .{.truncate=true})
 			catch unreachable;
 		file.close();
-		
+		var it = ArgIterator.init(contents);
+		var args = Buffer([]u8).init(mem.*);
+		while (it.next()) |arg| {
+			args.append(arg)
+				catch unreachable;
+		}
+		universe.execute(args);
 	}
 }
 
