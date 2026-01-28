@@ -1278,11 +1278,12 @@ const Proc = struct {
 	}
 
 	pub fn show(self: *Proc, i: u64) void {
-		std.debug.print("proc {s}/{} (\n", .{PROC_NAMES[i], self.degree});
+		const stdout = std.io.getStdOut().writer();
+		stdout.print("\x1b[1;34mfunction\x1b[0m {s} (\n", .{PROC_NAMES[i]}) catch {return;};
 		for (self.body.items) |*line| {
 			line.show(1);
 		}
-		std.debug.print(")\n\n", .{});
+		stdout.print(")\n\n", .{}) catch {return;};
 	}
 };
 
@@ -1470,24 +1471,25 @@ const Line = union(enum) {
 	},
 
 	pub fn show(self: *Line, depth: u64) void {
+		const stdout = std.io.getStdOut().writer();
 		for (0..depth) |_| {
-			std.debug.print("    ", .{});
+			stdout.print("    ", .{}) catch {return;};
 		}
 		switch(self.*){
 			.read => {
-				std.debug.print("var {c} = read({c})\n", .{self.read.data, self.read.param});
+				stdout.print("\x1b[1;34mvar\x1b[0m {c} = \x1b[1;32mread\x1b[0m({c})\n", .{self.read.data, self.read.param}) catch {return;};
 			},
 			.write => {
-				std.debug.print("{c}({c})\n", .{self.write.data, self.write.param});
+				stdout.print("\x1b[1;32m{c}\x1b[0m({c})\n", .{self.write.data, self.write.param}) catch {return;};
 			},
 			.remove => {
-				std.debug.print("~{c}({c})\n", .{self.remove.data, self.remove.param});
+				stdout.print("\x1b[1;32mrevoke {c}\x1b[0m({c})\n", .{self.remove.data, self.remove.param}) catch {return;};
 			},
 			.call => {
-				std.debug.print("unimplemented\n", .{});
+				stdout.print("unimplemented\n", .{}) catch {return;};
 			},
 			.conditional => {
-				std.debug.print("if {c} in {c}\n", .{self.conditional.check.param, self.conditional.check.data});
+				stdout.print("\x1b[1;34mif\x1b[0m {c} in {c}\n", .{self.conditional.check.param, self.conditional.check.data}) catch {return;};
 				if (self.conditional.body) |bod| {
 					for (bod.items) |*line| {
 						line.show(depth+1);
@@ -1495,9 +1497,9 @@ const Line = union(enum) {
 				}
 				else{
 					for (0..depth+1) |_|{
-						std.debug.print("    ", .{});
+						stdout.print("    ", .{}) catch {return;};
 					}
-					std.debug.print("return\n", .{});
+					stdout.print("\x1b[1;34mreturn\x1b[0m\n", .{}) catch {return;};
 				}
 			}
 		}
@@ -1712,20 +1714,20 @@ const Universe = struct{
 			}
 			const target = self.services.items[machine];
 			write_program(target.prog.?);
-			std.debug.print("default eermissions: ", .{});
+			stdout.print("default permissions: ", .{}) catch {return null;};
 			for (target.env.data.items) |state| {
 				if (state.sub == .param or state.id == .param){
 					return null;
 				}
-				std.debug.print("({c} {c}) ", .{
+				stdout.print("({c} {c}) ", .{
 					to_lower(state.sub.state),
 					to_numeric(state.id.state)
-				});
+				}) catch {return null;};
 			}
-			std.debug.print("\nroot permission: ({c} {c})\n", .{
+			stdout.print("\nroot permission: ({c} {c})\n", .{
 				to_lower(target.target.sub.state),
 				to_numeric(target.target.id.state)
-			});
+			}) catch {return null;};
 			return null;
 		}
 		return null;
