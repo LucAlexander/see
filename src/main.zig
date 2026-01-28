@@ -1234,34 +1234,187 @@ const PermutationPair = struct {
 
 const Proc = struct {
 	degree: u64,
-	body: Buffer(Line)
+	body: Buffer(Line),
+
+	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, rule: Rule) Proc {
+		var proc = Proc{
+			.degree = rule.degree,
+			.body = Buffer(Line).init(mem.*)
+		};
+		var scope = Set(Data).init(mem);
+		var target = &proc.body;
+		for (rule.requires.data.items) |cond| {
+			target = control_flow_block_requirement(mem, rng, &scope, cond, target);
+		}
+		for (rule.consumes.data.items) |cut| {
+			control_flow_block_consume(&scope, cut, target);
+		}
+		for (rule.introduces.data.items) |new| {
+			control_flow_block_introduce(&scope, new, target);
+		}
+	}
 };
+
+pub fn control_flow_block_introduce(scope: *Set(Data), cond: State, current: *Buffer(Line)) void {
+	var variable = undefined;
+	var user = undefined;
+	switch (cond.sub) {
+		.param => {
+			variable = Data{
+				.data = cond.sub.param,
+				.param = scope.data.items.len
+			};
+		},
+		.state => {
+			variable = Data{
+				.data = cond.sub.state,
+				.param = scope.data.items.len
+			};
+		}
+	}
+	switch (cond.id) {
+		.param => {
+			user = cond.id.param;
+		},
+		.state => {
+			user = cond.id.state;
+		}
+	}
+	if (!scope.contains(variable)){
+		scope.put(variable);
+		current.append(Line{
+			.read = variable
+		}) catch unreachable;
+	}
+	const add = Line{
+		.write = Data{
+			.data = variable.data,
+			.param = user
+		}
+	};
+	current.append(add)
+		catch unreachable;
+}
+
+pub fn control_flow_block_consume(scope: *Set(Data), cond: State, current: *Buffer(Line)) void {
+	var variable = undefined;
+	var user = undefined;
+	switch (cond.sub) {
+		.param => {
+			variable = Data{
+				.data = cond.sub.param,
+				.param = scope.data.items.len
+			};
+		},
+		.state => {
+			variable = Data{
+				.data = cond.sub.state,
+				.param = scope.data.items.len
+			};
+		}
+	}
+	switch (cond.id) {
+		.param => {
+			user = cond.id.param;
+		},
+		.state => {
+			user = cond.id.state;
+		}
+	}
+	if (!scope.contains(variable)){
+		scope.put(variable);
+		current.append(Line{
+			.read = variable
+		}) catch unreachable;
+	}
+	const cut = Line{
+		.remove = Data{
+			.data = variable.data,
+			.param = user
+		}
+	};
+	current.append(cut)
+		catch unreachable;
+}
+
+pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Random, scope: *Set(Data), cond: State, current: *Buffer(Line)) *Buffer(Line) {
+	var variable = undefined;
+	var user = undefined;
+	switch (cond.sub) {
+		.param => {
+			variable = Data{
+				.data = cond.sub.param,
+				.param = scope.data.items.len
+			};
+		},
+		.state => {
+			variable = Data{
+				.data = cond.sub.state,
+				.param = scope.data.items.len
+			};
+		}
+	}
+	switch (cond.id) {
+		.param => {
+			user = cond.id.param;
+		},
+		.state => {
+			user = cond.id.state;
+		}
+	}
+	if (!scope.contains(variable)){
+		scope.put(variable);
+		current.append(Line{
+			.read = variable
+		}) catch unreachable;
+	}
+	var check = Line{
+		.conditional = .{
+			.check = Data{
+				.data = variable.data,
+				.param = user
+			},
+			.body = null
+		}
+	};
+	var ret = current;
+	if (rng.intRangeAtMost(u64, 0, 1) == 0){
+		check.conditional.body = Buffer(Line).init(mem.*);
+		ret = &check.conditional.body.?;
+	}
+	current.append(check)
+		catch unreachable;
+	return ret;
+}
 
 const Data = union(enum) {
 	data: u64,
-	param: u64
+	param: u64,
+
+	pub fn clone(self: *Data) Data {
+		return self.*;
+	}
+
+	pub fn eql(a: Data, b: Data) bool {
+		return a.data == b.data;
+	}
+
+	pub fn show(self: *Data) void {
+		std.debug.print("[{} {}] ", .{self.data, self.param});
+	}
+	
 };
 
 const Line = union(enum) {
-	read: struct {
-		variable: Data,
-		capability: Data
-	},
-	write: struct {
-		capability: Data,
-		user: Data
-	},
-	remove: struct {
-		capability: Data,
-		user: Data
-	},
-	call: struct {
+	read: Data,
+	write: Data,
+	remove: Data,
+	call:struct {
 		machine: u64,
 		service: u64
 	},
 	conditional: struct {
-		user: Data,
-		variable: Data,
+		check: Data,
 		body: ?Buffer(Line)
 	}
 };
@@ -1336,7 +1489,6 @@ const Universe = struct{
 };
 
 //TODO 
-// vectors of patching
 // presentation layer
 // interaction layer
 
