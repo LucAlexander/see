@@ -1707,6 +1707,7 @@ const Universe = struct{
 			}
 			const target = self.services.items[machine];
 			write_program(target.prog.?);
+			std.debug.print("default eermissions: ", .{});
 			for (target.env.data.items) |state| {
 				if (state.sub == .param or state.id == .param){
 					return null;
@@ -1716,6 +1717,10 @@ const Universe = struct{
 					to_numeric(state.id.state)
 				});
 			}
+			std.debug.print("\nroot permission: ({c} {c})\n", .{
+				to_lower(target.target.sub.state),
+				to_numeric(target.target.id.state)
+			});
 			return null;
 		}
 		return null;
