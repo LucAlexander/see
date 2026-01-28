@@ -1526,7 +1526,7 @@ const MAX_SERVICES = 5;
 const Machine = struct {
 	services: Buffer(System),
 
-	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, service_count: u64, pool: Buffer(System)) Machine {
+	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, service_count: u64, pool: Buffer(System), services: *Buffer(System)) Machine {
 		var mach = Machine{
 			.services = Buffer(System).init(mem.*),
 		};
@@ -1534,6 +1534,8 @@ const Machine = struct {
 			if (rng.intRangeAtMost(u64, 0, 2) == 0){
 				if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, SYSTEM_SIZE, 20)) |service| {
 					mach.services.append(service)
+						catch unreachable;
+					services.append(service)
 						catch unreachable;
 				}
 			}
@@ -1558,11 +1560,13 @@ const Machine = struct {
 const Universe = struct{
 	mem: *const std.mem.Allocator,
 	machines: Buffer(Machine),
+	services: Buffer(System),
 
 	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, n: u64) Universe {
 		var uni = Universe{
 			.mem = mem,
-			.machines = Buffer(Machine).init(mem.*)
+			.machines = Buffer(Machine).init(mem.*),
+			.services = Buffer(System).init(mem.*)
 		};
 		var pool = Buffer(System).init(mem.*);
 		while (pool.items.len == 0) {
@@ -1572,6 +1576,8 @@ const Universe = struct{
 				const progress = i*100/max;
 				if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, SYSTEM_SIZE, 20)) |sys| {
 					pool.append(sys)
+						catch unreachable;
+					uni.services.append(sys)
 						catch unreachable;
 				}
 				std.debug.print("\r[", .{});
@@ -1588,7 +1594,7 @@ const Universe = struct{
 		std.debug.print("Generating Machines...\n", .{});
 		for (0..n) |i| {
 			const service_count = rng.intRangeAtMost(u64, 1, MAX_SERVICES);
-			uni.machines.append(Machine.init(mem, rng, service_count, pool))
+			uni.machines.append(Machine.init(mem, rng, service_count, pool, &uni.services))
 				catch unreachable;
 			const progress = i*100/n;
 			std.debug.print("\r[", .{});
@@ -1611,15 +1617,21 @@ const Universe = struct{
 		const machine = std.fmt.parseInt(u64, args.items[0], 10) catch {
 			return;
 		};
-		if (machine >= self.machines.items.len) {
-			return;
-		}
-		var target = self.machines.items[machine];
-		if (args.items.len < 2){
-			return;
-		}
 		if (std.mem.eql(u8, args.items[1], "scan")){
+			if (machine >= self.machines.items.len) {
+				return;
+			}
+			var target = self.machines.items[machine];
 			target.show();
+			return;
+		}
+		if (std.mem.eql(u8, args.items[1], "lookup")){
+			if (machine >= self.services.items.len) {
+				return;
+			}
+			const target = self.services.items[machine];
+			write_program(target.prog.?);
+			return;
 		}
 	}
 
