@@ -1649,6 +1649,7 @@ const Universe = struct{
 	}
 	
 	pub fn execute(self: *Universe, args: Buffer([]u8)) ?*System {
+		const stdout = std.io.getStdOut().writer();
 		if (args.items.len < 1){
 			return null;
 		}
@@ -1677,26 +1678,30 @@ const Universe = struct{
 			const service_id = std.fmt.parseInt(u64, args.items[2], 10) catch {
 				return null;
 			};
-			const name = args.items[3];
-			var param = std.AutoHashMap(u64, u64).init(self.mem.*);
-			for (4..args.items.len, 0..) |i, arg_index| {
-				const converted = std.fmt.parseInt(u64, args.items[i], 10) catch {
-					return null;
-				};
-				param.put(converted, arg_index)
-					catch unreachable;
-			}
-			for (PROC_NAMES, 0..) |candidate, i| {
-				if (std.mem.eql(u8, name, candidate)){
-					const sys = &target.services.items[service_id];
-					if (i >= sys.rules.data.items.len){
-						return null;
+			for (target.services.items, 0..) |service, service_index| {
+				if (service.id == service_id){
+					const name = args.items[3];
+					var param = std.AutoHashMap(u64, u64).init(self.mem.*);
+					for (4..args.items.len, 0..) |i, arg_index| {
+						const converted = std.fmt.parseInt(u64, args.items[i], 10) catch {
+							return null;
+						};
+						param.put(converted, arg_index)
+							catch unreachable;
 					}
-					if (sys.rules.data.items[i].eval(self.mem, &sys.env, param)) {
-						std.debug.print("success\n", .{});
-						return sys;
+					for (PROC_NAMES, 0..) |candidate, i| {
+						if (std.mem.eql(u8, name, candidate)){
+							const sys = &target.services.items[service_index];
+							if (i >= sys.rules.data.items.len){
+								return null;
+							}
+							if (sys.rules.data.items[i].eval(self.mem, &sys.env, param)) {
+								stdout.print("\x1b[1;31msuccessful call\x1b[0m\n", .{}) catch {return null;};
+								return sys;
+							}
+							return null;
+						}
 					}
-					return null;
 				}
 			}
 			return null;
