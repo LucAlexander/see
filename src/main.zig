@@ -427,6 +427,8 @@ const System = struct {
 	users: u64,
 	target: State,
 	prog: ?Program,
+	id: ?u64,
+	version: u64,
 
 	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, rules: u64) System {
 		var sys = System{
@@ -437,7 +439,9 @@ const System = struct {
 			.capabilities = 0,
 			.users = 0,
 			.target = State.init(0, 0),
-			.prog = null
+			.prog = null,
+			.id = null,
+			.version = 0
 		};
 		const capabilities = rng.intRangeAtMost(u64, 12, 24);
 		const users = rng.intRangeAtMost(u64, 2, 4);
@@ -499,7 +503,9 @@ const System = struct {
 			.capabilities = self.capabilities,
 			.users = self.users,
 			.target = self.target.clone(mem),
-			.prog = self.prog
+			.prog = self.prog,
+			.id = self.id,
+			.version = self.version
 		};
 	}
 
@@ -1105,6 +1111,7 @@ const System = struct {
 				}
 				alts += 1;
 				if (alts == alterations){
+					self.version += 1;
 					return;
 				}
 			}
@@ -1143,16 +1150,7 @@ const System = struct {
 	}
 
 	pub fn show(self: *System) void {
-		for (self.rules.data.items) |*rule| {
-			rule.show();
-		}
-		std.debug.print("Starting environment: ", .{});
-		for (self.env.data.items) |*state| {
-			state.show();
-		}
-		std.debug.print("\nTarget capability: ", .{});
-		self.target.show();
-		std.debug.print("\n", .{});
+		std.debug.print(" service_id: {} version: {}\n", .{self.id.?, self.version});
 	}
 };
 
@@ -1225,6 +1223,8 @@ pub fn attempt_problem(mem: *const std.mem.Allocator, rng: std.Random, sample_si
 	return null;
 }
 
+var system_id: u64 = 0;
+
 pub fn problem(owner: *const std.mem.Allocator, rng: std.Random, sample_size: u64, trials: u64, steps: u64, rule_count: u64, max_retries: u64) ?System {
 	var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 	var mem = arena.allocator();
@@ -1235,6 +1235,8 @@ pub fn problem(owner: *const std.mem.Allocator, rng: std.Random, sample_size: u6
 			if (best.?.min_steps_to_target(PROBLEM_PRECISION) >= 3){
 				var best_clone = best.?.clone(owner);
 				best_clone.prog = program(owner, rng, best_clone);
+				best_clone.id = system_id;
+				system_id += 1;
 				return best_clone;
 			}
 		}
@@ -1526,7 +1528,7 @@ const Machine = struct {
 
 	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, service_count: u64, pool: Buffer(System)) Machine {
 		var mach = Machine{
-			.services = Buffer(System).init(mem.*)
+			.services = Buffer(System).init(mem.*),
 		};
 		for (0 .. service_count) |_| {
 			if (rng.intRangeAtMost(u64, 0, 2) == 0){
@@ -1537,12 +1539,19 @@ const Machine = struct {
 			}
 			else{
 				const index = rng.intRangeAtMost(u64, 0, pool.items.len-1);
-				const service = pool.items[index];
+				const service = pool.items[index].clone(mem);
 				mach.services.append(service)
 					catch unreachable;
 			}
 		}
 		return mach;
+	}
+
+	pub fn show(self: *Machine) void {
+		std.debug.print("Hosts {} public servers\n", .{self.services.items.len});
+		for (self.services.items) |*service| {
+			service.show();
+		}
 	}
 };
 
@@ -1605,7 +1614,13 @@ const Universe = struct{
 		if (machine >= self.machines.items.len) {
 			return;
 		}
-		_ = self.machines.items[machine];
+		var target = self.machines.items[machine];
+		if (args.items.len < 2){
+			return;
+		}
+		if (std.mem.eql(u8, args.items[1], "scan")){
+			target.show();
+		}
 	}
 
 	pub fn show(self: *Universe) void {
@@ -1630,14 +1645,17 @@ const ArgIterator = struct {
 
 	pub fn next(self: *ArgIterator) ?[]u8 {
 		const old = self.ptr;
+		if (old >= self.contents.len){
+			return null;
+		}
 		while (self.ptr < self.contents.len) {
 			if (self.contents[self.ptr] == ' '){
 				self.ptr += 1;
-				return self.contents[old..self.ptr];
+				return self.contents[old..self.ptr-1];
 			}
 			self.ptr += 1;
 		}
-		return null;
+		return self.contents[old..self.contents.len-1];
 	}
 };
 
