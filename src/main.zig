@@ -1390,8 +1390,10 @@ pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Ra
 	};
 	var ret = current;
 	if (rng.intRangeAtMost(u64, 0, 1) == 0){
-		check.conditional.body = Buffer(Line).init(mem.*);
-		ret = &check.conditional.body.?;
+		check.conditional.body = mem.create(Buffer(Line))
+			catch unreachable;
+		check.conditional.body.?.* = Buffer(Line).init(mem.*);
+		ret = check.conditional.body.?;
 	}
 	current.append(check)
 		catch unreachable;
@@ -1426,7 +1428,7 @@ const Line = union(enum) {
 	},
 	conditional: struct {
 		check: Data,
-		body: ?Buffer(Line)
+		body: ?*Buffer(Line)
 	},
 
 	pub fn show(self: *Line, depth: u64) void {
@@ -1441,7 +1443,7 @@ const Line = union(enum) {
 				std.debug.print("{}({})\n", .{self.write.data, self.write.param});
 			},
 			.remove => {
-				std.debug.print("~{}({})\n", .{self.write.data, self.write.param});
+				std.debug.print("~{}({})\n", .{self.remove.data, self.remove.param});
 			},
 			.call => {
 				std.debug.print("unimplemented\n", .{});
@@ -1457,7 +1459,7 @@ const Line = union(enum) {
 					for (0..depth+1) |_|{
 						std.debug.print("    ", .{});
 					}
-					std.debug.print("return", .{});
+					std.debug.print("return\n", .{});
 				}
 			}
 		}
@@ -1480,7 +1482,7 @@ pub fn write_program(prog: Program) void {
 }
 
 const PROBLEM_PRECISION = 16;
-const WORLD_SIZE = 128;
+const WORLD_SIZE = 1;
 const SYSTEM_SIZE = 32;
 const MAX_WAYS = 3;
 const MIN_INTEREST = 8;
