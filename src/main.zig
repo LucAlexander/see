@@ -1066,6 +1066,48 @@ const System = struct {
 		}
 	}
 
+	pub fn patch(self: *System, alterations: u64, attempts: u64, n: u64) void {
+		const baseline = self.min_steps_to_target(n);
+		var alts: u64 = 0;
+		for (0..attempts) |_| {
+			var sys = self.clone();
+			const rule_index = self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1);
+			const rule = &sys.rules.data.items[rule_index];
+			const target = self.rng.intRangeAtMost(u64, 0, 2);
+			const cap = self.rng.intRangeAtMost(u64, 0, self.capabilities-1);
+			const user = self.rng.intRangeAtMost(u64, 0, self.users-1);
+			switch (target){
+				0 => {
+					rule.requires.put(State.init(cap, user));
+				},
+				1 => {
+					rule.consumes.put(State.init(cap, user));
+				},
+				else => {
+					rule.introduces.put(State.init(cap, user));
+				}
+			}
+			if (sys.min_steps_to_target(n) > baseline){
+				const real = &self.rules.data.items[rule_index];
+				switch (target){
+					0 => {
+						real.requires.put(State.init(cap, user));
+					},
+					1 => {
+						real.consumes.put(State.init(cap, user));
+					},
+					else => {
+						real.introduces.put(State.init(cap, user));
+					}
+				}
+				alts += 1;
+				if (alts == alterations){
+					return;
+				}
+			}
+		}
+	}
+
 	pub fn battle_sim(self: *System, n: u64) u64 {
 		var sys = self.clone(self.mem);
 		var steps: u64 = 0;
