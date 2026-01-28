@@ -426,6 +426,7 @@ const System = struct {
 	capabilities: u64,
 	users: u64,
 	target: State,
+	prog: ?Program,
 
 	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, rules: u64) System {
 		var sys = System{
@@ -435,7 +436,8 @@ const System = struct {
 			.rng = rng,
 			.capabilities = 0,
 			.users = 0,
-			.target = State.init(0, 0)
+			.target = State.init(0, 0),
+			.prog = null
 		};
 		const capabilities = rng.intRangeAtMost(u64, 12, 24);
 		const users = rng.intRangeAtMost(u64, 2, 4);
@@ -496,7 +498,8 @@ const System = struct {
 			.rng = self.rng,
 			.capabilities = self.capabilities,
 			.users = self.users,
-			.target = self.target.clone(mem)
+			.target = self.target.clone(mem),
+			.prog = self.prog
 		};
 	}
 
@@ -1129,6 +1132,11 @@ const System = struct {
 		return n;
 	}
 
+	pub fn defend(self: *System, difficulty: u64) void {
+		std.debug.print("difficulty: {}\n", .{difficulty});
+		self.prog = program(self.mem, self.rng, self.rules);
+	}
+
 	pub fn show(self: *System) void {
 		for (self.rules.data.items) |*rule| {
 			rule.show();
@@ -1220,7 +1228,9 @@ pub fn problem(owner: *const std.mem.Allocator, rng: std.Random, sample_size: u6
 		var best = attempt_problem(&mem, rng, sample_size, trials, steps, rule_count);
 		if (best) |_| {
 			if (best.?.min_steps_to_target(PROBLEM_PRECISION) >= 3){
-				return best.?.clone(owner);
+				var best_clone = best.?.clone(owner);
+				best_clone.prog = program(owner, rng, best_clone);
+				return best_clone;
 			}
 		}
 	}
@@ -1272,14 +1282,14 @@ pub fn control_flow_block_introduce(scope: *Set(Data), cond: State, current: *Bu
 	switch (cond.sub) {
 		.param => {
 			variable = Data{
-				.data = cond.sub.param,
-				.param = scope.data.items.len
+				.data = to_numeric(cond.sub.param),
+				.param = to_upper(scope.data.items.len)
 			};
 		},
 		.state => {
 			variable = Data{
-				.data = cond.sub.state,
-				.param = scope.data.items.len
+				.data = to_lower(cond.sub.state),
+				.param = to_upper(scope.data.items.len)
 			};
 		}
 	}
@@ -1300,7 +1310,7 @@ pub fn control_flow_block_introduce(scope: *Set(Data), cond: State, current: *Bu
 	const add = Line{
 		.write = Data{
 			.data = variable.data,
-			.param = user
+			.param = to_numeric(user)
 		}
 	};
 	current.append(add)
@@ -1313,14 +1323,14 @@ pub fn control_flow_block_consume(scope: *Set(Data), cond: State, current: *Buff
 	switch (cond.sub) {
 		.param => {
 			variable = Data{
-				.data = cond.sub.param,
-				.param = scope.data.items.len
+				.data = to_numeric(cond.sub.param),
+				.param = to_upper(scope.data.items.len)
 			};
 		},
 		.state => {
 			variable = Data{
-				.data = cond.sub.state,
-				.param = scope.data.items.len
+				.data = to_lower(cond.sub.state),
+				.param = to_upper(scope.data.items.len)
 			};
 		}
 	}
@@ -1341,11 +1351,29 @@ pub fn control_flow_block_consume(scope: *Set(Data), cond: State, current: *Buff
 	const cut = Line{
 		.remove = Data{
 			.data = variable.data,
-			.param = user
+			.param = to_numeric(user)
 		}
 	};
 	current.append(cut)
 		catch unreachable;
+}
+
+pub fn to_upper(char: u64) u8 {
+	var casted: u8 = @truncate(char);
+	casted += 'A';
+	return casted;
+}
+
+pub fn to_lower(char: u64) u8 {
+	var casted: u8 = @truncate(char);
+	casted += 'a';
+	return casted;
+}
+
+pub fn to_numeric(char: u64) u8 {
+	var casted: u8 = @truncate(char);
+	casted += '0';
+	return casted;
 }
 
 pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Random, scope: *Set(Data), cond: State, current: *Buffer(Line)) *Buffer(Line) {
@@ -1354,14 +1382,14 @@ pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Ra
 	switch (cond.sub) {
 		.param => {
 			variable = Data{
-				.data = cond.sub.param,
-				.param = scope.data.items.len
+				.data = to_numeric(cond.sub.param),
+				.param = to_upper(scope.data.items.len)
 			};
 		},
 		.state => {
 			variable = Data{
-				.data = cond.sub.state,
-				.param = scope.data.items.len
+				.data = to_lower(cond.sub.state),
+				.param = to_upper(scope.data.items.len)
 			};
 		}
 	}
@@ -1383,7 +1411,7 @@ pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Ra
 		.conditional = .{
 			.check = Data{
 				.data = variable.data,
-				.param = user
+				.param = to_numeric(user)
 			},
 			.body = null
 		}
@@ -1401,8 +1429,8 @@ pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Ra
 }
 
 const Data = struct {
-	data: u64,
-	param: u64,
+	data: u8,
+	param: u8,
 
 	pub fn clone(self: *Data) Data {
 		return self.*;
@@ -1437,19 +1465,19 @@ const Line = union(enum) {
 		}
 		switch(self.*){
 			.read => {
-				std.debug.print("var {} = read({})\n", .{self.read.param, self.read.data});
+				std.debug.print("var {c} = read({c})\n", .{self.read.data, self.read.param});
 			},
 			.write => {
-				std.debug.print("{}({})\n", .{self.write.data, self.write.param});
+				std.debug.print("{c}({c})\n", .{self.write.data, self.write.param});
 			},
 			.remove => {
-				std.debug.print("~{}({})\n", .{self.remove.data, self.remove.param});
+				std.debug.print("~{c}({c})\n", .{self.remove.data, self.remove.param});
 			},
 			.call => {
 				std.debug.print("unimplemented\n", .{});
 			},
 			.conditional => {
-				std.debug.print("if {} in {}\n", .{self.conditional.check.param, self.conditional.check.data});
+				std.debug.print("if {c} in {c}\n", .{self.conditional.check.param, self.conditional.check.data});
 				if (self.conditional.body) |bod| {
 					for (bod.items) |*line| {
 						line.show(depth+1);
@@ -1551,7 +1579,6 @@ const Universe = struct{
 };
 
 //TODO 
-// presentation layer
 // interaction layer
 
 pub fn main() !void {
@@ -1562,7 +1589,5 @@ pub fn main() !void {
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
 	var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
-	const prog = program(&mem, prng.random(), universe.machines.items[0].services.items[0]);
-	write_program(prog);
 	universe.show();
 }
