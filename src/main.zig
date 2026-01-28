@@ -429,6 +429,7 @@ const System = struct {
 	prog: ?Program,
 	id: ?u64,
 	version: u64,
+	touched: bool,
 
 	pub fn init(mem: *const std.mem.Allocator, rng: std.Random, rules: u64) System {
 		var sys = System{
@@ -441,7 +442,8 @@ const System = struct {
 			.target = State.init(0, 0),
 			.prog = null,
 			.id = null,
-			.version = 0
+			.version = 0,
+			.touched = false
 		};
 		const capabilities = rng.intRangeAtMost(u64, 12, 24);
 		const users = rng.intRangeAtMost(u64, 2, 4);
@@ -505,7 +507,8 @@ const System = struct {
 			.target = self.target.clone(mem),
 			.prog = self.prog,
 			.id = self.id,
-			.version = self.version
+			.version = self.version,
+			.touched = self.touched
 		};
 	}
 
@@ -1765,6 +1768,15 @@ pub fn game(mem: *const std.mem.Allocator, rng: std.Random, difficulty: u64) voi
 		const stat = file.stat()
 			catch unreachable;
 		if (stat.size == 0){
+			for (universe.machines.items) |*machine| {
+				for (machine.services.items) |*service| {
+					if (service.touched){
+						if (rng.intRangeAtMost(u64, difficulty, difficulty + 8) == 0){
+							service.defend(difficulty);
+						}
+					}
+				}
+			}
 			continue;
 		}
 		const contents = file.readToEndAlloc(mem.*, stat.size + 1)
@@ -1781,14 +1793,13 @@ pub fn game(mem: *const std.mem.Allocator, rng: std.Random, difficulty: u64) voi
 				catch unreachable;
 		}
 		if (universe.execute(args)) |service| {
+			service.touched = true;
 			if (rng.intRangeAtMost(u64, difficulty, difficulty + 8) == 0){
 				service.defend(difficulty);
 			}
 		}
 	}
 }
-
-//TODO updates need to be queryable
 
 pub fn main() !void {
 	const allocator = std.heap.page_allocator;
