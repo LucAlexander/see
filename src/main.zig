@@ -1073,7 +1073,7 @@ const System = struct {
 		const baseline = self.min_steps_to_target(n);
 		var alts: u64 = 0;
 		for (0..attempts) |_| {
-			var sys = self.clone();
+			var sys = self.clone(self.mem);
 			const rule_index = self.rng.intRangeAtMost(u64, 0, self.rules.data.items.len-1);
 			const rule = &sys.rules.data.items[rule_index];
 			const target = self.rng.intRangeAtMost(u64, 0, 2);
@@ -1132,9 +1132,14 @@ const System = struct {
 		return n;
 	}
 
-	pub fn defend(self: *System, difficulty: u64) void {
-		std.debug.print("difficulty: {}\n", .{difficulty});
-		self.prog = program(self.mem, self.rng, self.rules);
+	pub fn defend(self: *System, difficulty: u64, ) void {
+		if (self.rng.intRangeAtMost(u64, difficulty, difficulty + 8) == 0){
+			self.patch(1, difficulty, PROBLEM_PRECISION);
+		}
+		else{
+			self.defensive_action(PROBLEM_PRECISION);
+		}
+		self.prog = program(self.mem, self.rng, self.*);
 	}
 
 	pub fn show(self: *System) void {
@@ -1590,4 +1595,5 @@ pub fn main() !void {
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
 	var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
 	universe.show();
+	universe.machines.items[0].services.items[0].defend(1);
 }
