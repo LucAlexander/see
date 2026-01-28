@@ -1698,7 +1698,10 @@ const Universe = struct{
 								return null;
 							}
 							if (sys.rules.data.items[i].eval(self.mem, &sys.env, param)) {
-								stdout.print("\x1b[1;31msuccessful call\x1b[0m\n", .{}) catch {return null;};
+								stdout.print("\x1b[1;31m---200 OK---\x1b[0m\n", .{}) catch {return null;};
+								if (sys.env.contains(sys.target)){
+									stdout.print("\x1b[1;34m---ACCESS GRANTED---\x1b[0m\n", .{}) catch {return null;};
+								}
 								return sys;
 							}
 							return null;
