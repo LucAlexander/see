@@ -1274,8 +1274,8 @@ const Proc = struct {
 		return proc;
 	}
 
-	pub fn show(self: *Proc) void {
-		std.debug.print("proc/{} (\n", .{self.degree});
+	pub fn show(self: *Proc, i: u64) void {
+		std.debug.print("proc {s}/{} (\n", .{PROC_NAMES[i], self.degree});
 		for (self.body.items) |*line| {
 			line.show(1);
 		}
@@ -1511,8 +1511,8 @@ pub fn program(mem: *const std.mem.Allocator, rng: std.Random, sys: System) Prog
 }
 
 pub fn write_program(prog: Program) void {
-	for (prog.items) |*proc| {
-		proc.show();
+	for (prog.items, 0..) |*proc, i| {
+		proc.show(i);
 	}
 }
 
@@ -1555,6 +1555,41 @@ const Machine = struct {
 			service.show();
 		}
 	}
+};
+
+const PROC_NAMES = [_][] const u8{
+	"Lion",
+	"Tiger",
+	"Elephant",
+	"Giraffe",
+	"Zebra",
+	"Rhinoceros",
+	"Hippopotamus",
+	"Leopard",
+	"Cheetah",
+	"Wolf",
+	"Fox",
+	"Bear",
+	"Deer",
+	"Moose",
+	"Elk",
+	"Bison",
+	"Kangaroo",
+	"Koala",
+	"Panda",
+	"Gorilla",
+	"Chimpanzee",
+	"Orangutan",
+	"Dolphin",
+	"Whale",
+	"Shark",
+	"Octopus",
+	"Eagle",
+	"Hawk",
+	"Owl",
+	"Penguin",
+	"Crocodile",
+	"Alligator"
 };
 
 const Universe = struct{
@@ -1617,12 +1652,49 @@ const Universe = struct{
 		const machine = std.fmt.parseInt(u64, args.items[0], 10) catch {
 			return;
 		};
+		if (args.items.len < 2){
+			return;
+		}
 		if (std.mem.eql(u8, args.items[1], "scan")){
 			if (machine >= self.machines.items.len) {
 				return;
 			}
 			var target = self.machines.items[machine];
 			target.show();
+			return;
+		}
+		if (std.mem.eql(u8, args.items[1], "call")){
+			if (machine >= self.machines.items.len) {
+				return;
+			}
+			var target = self.machines.items[machine];
+			if (args.items.len < 4){
+				return;
+			}
+			const service_id = std.fmt.parseInt(u64, args.items[2], 10) catch {
+				return;
+			};
+			const name = args.items[3];
+			var param = std.AutoHashMap(u64, u64).init(self.mem.*);
+			for (4..args.items.len, 0..) |i, arg_index| {
+				const converted = std.fmt.parseInt(u64, args.items[i], 10) catch {
+					return;
+				};
+				param.put(converted, arg_index)
+					catch unreachable;
+			}
+			for (PROC_NAMES, 0..) |candidate, i| {
+				if (std.mem.eql(u8, name, candidate)){
+					const sys = &target.services.items[service_id];
+					if (i >= sys.rules.data.items.len){
+						return;
+					}
+					if (sys.rules.data.items[i].eval(self.mem, &sys.env, param)) {
+						std.debug.print("success\n", .{});
+					}
+					return;
+				}
+			}
 			return;
 		}
 		if (std.mem.eql(u8, args.items[1], "lookup")){
