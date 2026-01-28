@@ -1232,6 +1232,8 @@ const PermutationPair = struct {
 	val: ?u64
 };
 
+const Program = Buffer(Proc);
+
 const Proc = struct {
 	degree: u64,
 	body: Buffer(Line),
@@ -1252,12 +1254,21 @@ const Proc = struct {
 		for (rule.introduces.data.items) |new| {
 			control_flow_block_introduce(&scope, new, target);
 		}
+		return proc;
+	}
+
+	pub fn show(self: *Proc) void {
+		std.debug.print("proc/{} (\n", .{self.degree});
+		for (self.body.items) |*line| {
+			line.show(1);
+		}
+		std.debug.print(")\n\n", .{});
 	}
 };
 
 pub fn control_flow_block_introduce(scope: *Set(Data), cond: State, current: *Buffer(Line)) void {
-	var variable = undefined;
-	var user = undefined;
+	var variable: Data = undefined;
+	var user: u64 = undefined;
 	switch (cond.sub) {
 		.param => {
 			variable = Data{
@@ -1297,8 +1308,8 @@ pub fn control_flow_block_introduce(scope: *Set(Data), cond: State, current: *Bu
 }
 
 pub fn control_flow_block_consume(scope: *Set(Data), cond: State, current: *Buffer(Line)) void {
-	var variable = undefined;
-	var user = undefined;
+	var variable: Data = undefined;
+	var user: u64 = undefined;
 	switch (cond.sub) {
 		.param => {
 			variable = Data{
@@ -1338,8 +1349,8 @@ pub fn control_flow_block_consume(scope: *Set(Data), cond: State, current: *Buff
 }
 
 pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Random, scope: *Set(Data), cond: State, current: *Buffer(Line)) *Buffer(Line) {
-	var variable = undefined;
-	var user = undefined;
+	var variable: Data = undefined;
+	var user: u64 = undefined;
 	switch (cond.sub) {
 		.param => {
 			variable = Data{
@@ -1387,7 +1398,7 @@ pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Ra
 	return ret;
 }
 
-const Data = union(enum) {
+const Data = struct {
 	data: u64,
 	param: u64,
 
@@ -1416,8 +1427,57 @@ const Line = union(enum) {
 	conditional: struct {
 		check: Data,
 		body: ?Buffer(Line)
+	},
+
+	pub fn show(self: *Line, depth: u64) void {
+		for (0..depth) |_| {
+			std.debug.print("    ", .{});
+		}
+		switch(self.*){
+			.read => {
+				std.debug.print("var {} = read({})\n", .{self.read.param, self.read.data});
+			},
+			.write => {
+				std.debug.print("{}({})\n", .{self.write.data, self.write.param});
+			},
+			.remove => {
+				std.debug.print("~{}({})\n", .{self.write.data, self.write.param});
+			},
+			.call => {
+				std.debug.print("unimplemented\n", .{});
+			},
+			.conditional => {
+				std.debug.print("if {} in {}\n", .{self.conditional.check.param, self.conditional.check.data});
+				if (self.conditional.body) |bod| {
+					for (bod.items) |*line| {
+						line.show(depth+1);
+					}
+				}
+				else{
+					for (0..depth+1) |_|{
+						std.debug.print("    ", .{});
+					}
+					std.debug.print("return", .{});
+				}
+			}
+		}
 	}
 };
+
+pub fn program(mem: *const std.mem.Allocator, rng: std.Random, sys: System) Program {
+	var prog = Program.init(mem.*);
+	for (sys.rules.data.items) |rule| {
+		prog.append(Proc.init(mem, rng, rule))
+			catch unreachable;
+	}
+	return prog;
+}
+
+pub fn write_program(prog: Program) void {
+	for (prog.items) |*proc| {
+		proc.show();
+	}
+}
 
 const PROBLEM_PRECISION = 16;
 const WORLD_SIZE = 128;
@@ -1500,5 +1560,7 @@ pub fn main() !void {
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
 	var universe = Universe.init(&mem, prng.random(), WORLD_SIZE);
+	const prog = program(&mem, prng.random(), universe.machines.items[0].services.items[0]);
+	write_program(prog);
 	universe.show();
 }
