@@ -1645,40 +1645,40 @@ const Universe = struct{
 		return uni;
 	}
 	
-	pub fn execute(self: *Universe, args: Buffer([]u8)) void {
+	pub fn execute(self: *Universe, args: Buffer([]u8)) ?*System {
 		if (args.items.len < 1){
-			return;
+			return null;
 		}
 		const machine = std.fmt.parseInt(u64, args.items[0], 10) catch {
-			return;
+			return null;
 		};
 		if (args.items.len < 2){
-			return;
+			return null;
 		}
 		if (std.mem.eql(u8, args.items[1], "scan")){
 			if (machine >= self.machines.items.len) {
-				return;
+				return null;
 			}
 			var target = self.machines.items[machine];
 			target.show();
-			return;
+			return null;
 		}
 		if (std.mem.eql(u8, args.items[1], "call")){
 			if (machine >= self.machines.items.len) {
-				return;
+				return null;
 			}
 			var target = self.machines.items[machine];
 			if (args.items.len < 4){
-				return;
+				return null;
 			}
 			const service_id = std.fmt.parseInt(u64, args.items[2], 10) catch {
-				return;
+				return null;
 			};
 			const name = args.items[3];
 			var param = std.AutoHashMap(u64, u64).init(self.mem.*);
 			for (4..args.items.len, 0..) |i, arg_index| {
 				const converted = std.fmt.parseInt(u64, args.items[i], 10) catch {
-					return;
+					return null;
 				};
 				param.put(converted, arg_index)
 					catch unreachable;
@@ -1687,33 +1687,35 @@ const Universe = struct{
 				if (std.mem.eql(u8, name, candidate)){
 					const sys = &target.services.items[service_id];
 					if (i >= sys.rules.data.items.len){
-						return;
+						return null;
 					}
 					if (sys.rules.data.items[i].eval(self.mem, &sys.env, param)) {
 						std.debug.print("success\n", .{});
+						return sys;
 					}
-					return;
+					return null;
 				}
 			}
-			return;
+			return null;
 		}
 		if (std.mem.eql(u8, args.items[1], "lookup")){
 			if (machine >= self.services.items.len) {
-				return;
+				return null;
 			}
 			const target = self.services.items[machine];
 			write_program(target.prog.?);
 			for (target.env.data.items) |state| {
 				if (state.sub == .param or state.id == .param){
-					return;
+					return null;
 				}
 				std.debug.print("({c} {c}) ", .{
 					to_lower(state.sub.state),
 					to_numeric(state.id.state)
 				});
 			}
-			return;
+			return null;
 		}
+		return null;
 	}
 
 	pub fn show(self: *Universe) void {
@@ -1752,7 +1754,7 @@ const ArgIterator = struct {
 	}
 };
 
-pub fn game(mem: *const std.mem.Allocator, rng: std.Random) void {
+pub fn game(mem: *const std.mem.Allocator, rng: std.Random, difficulty: u64) void {
 	var universe = Universe.init(mem, rng, WORLD_SIZE);
 	universe.show();
 	const cwd = std.fs.cwd();
@@ -1778,9 +1780,15 @@ pub fn game(mem: *const std.mem.Allocator, rng: std.Random) void {
 			args.append(arg)
 				catch unreachable;
 		}
-		universe.execute(args);
+		if (universe.execute(args)) |service| {
+			if (rng.intRangeAtMost(u64, difficulty, difficulty + 8) == 0){
+				service.defend(difficulty);
+			}
+		}
 	}
 }
+
+//TODO updates need to be queryable
 
 pub fn main() !void {
 	const allocator = std.heap.page_allocator;
@@ -1789,5 +1797,5 @@ pub fn main() !void {
 	const mem = main_mem.allocator();
 	var rand = std.crypto.random;
 	var prng = std.Random.DefaultPrng.init(rand.int(u64));
-	game(&mem, prng.random());
+	game(&mem, prng.random(), 8);
 }
