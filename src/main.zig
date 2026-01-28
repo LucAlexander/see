@@ -1703,6 +1703,15 @@ const Universe = struct{
 			}
 			const target = self.services.items[machine];
 			write_program(target.prog.?);
+			for (target.env.data.items) |state| {
+				if (state.sub == .param or state.id == .param){
+					return;
+				}
+				std.debug.print("({c} {c}) ", .{
+					to_lower(state.sub.state),
+					to_numeric(state.id.state)
+				});
+			}
 			return;
 		}
 	}
