@@ -1299,8 +1299,8 @@ pub fn control_flow_block_introduce(scope: *Set(Data), cond: State, current: *Bu
 		},
 		.state => {
 			variable = Data{
-				.data = to_lower(cond.sub.state),
-				.param = to_upper(scope.data.items.len)
+				.param = to_upper(cond.sub.state),
+				.data = to_lower(scope.data.items.len)
 			};
 		}
 	}
@@ -1340,8 +1340,8 @@ pub fn control_flow_block_consume(scope: *Set(Data), cond: State, current: *Buff
 		},
 		.state => {
 			variable = Data{
-				.data = to_lower(cond.sub.state),
-				.param = to_upper(scope.data.items.len)
+				.param = to_upper(cond.sub.state),
+				.data = to_lower(scope.data.items.len)
 			};
 		}
 	}
@@ -1399,8 +1399,8 @@ pub fn control_flow_block_requirement(mem: *const std.mem.Allocator, rng: std.Ra
 		},
 		.state => {
 			variable = Data{
-				.data = to_lower(cond.sub.state),
-				.param = to_upper(scope.data.items.len)
+				.param = to_upper(cond.sub.state),
+				.data = to_lower(scope.data.items.len)
 			};
 		}
 	}
@@ -1523,7 +1523,7 @@ pub fn write_program(prog: Program) void {
 
 const PROBLEM_PRECISION = 16;
 const WORLD_SIZE = 16;
-const SYSTEM_SIZE = 32;
+const SYSTEM_SIZE = 16;
 const MAX_WAYS = 3;
 const MIN_INTEREST = 8;
 const MAX_SERVICES = 5;
@@ -1609,9 +1609,11 @@ const Universe = struct{
 			.services = Buffer(System).init(mem.*)
 		};
 		var pool = Buffer(System).init(mem.*);
+		const stdout = std.io.getStdOut().writer();
 		while (pool.items.len == 0) {
 			const max = n*4;
-			std.debug.print("Heuristically Fuzzing Software...\n", .{});
+			stdout.print("Heuristically Fuzzing Software...\n", .{})
+				catch unreachable;
 			for (0..max) |i| {
 				const progress = i*100/max;
 				if (problem(mem, rng, PROBLEM_PRECISION, PROBLEM_PRECISION, PROBLEM_PRECISION, SYSTEM_SIZE, 20)) |sys| {
@@ -1622,31 +1624,41 @@ const Universe = struct{
 				}
 				std.debug.print("\r[", .{});
 				for (0..progress) |_|{
-					std.debug.print("#", .{});
+					stdout.print("\x1b[1;35m#\x1b[0m", .{})
+						catch unreachable;
 				}
 				for (progress..100) |_|{
-					std.debug.print(" ", .{});
+					stdout.print(" ", .{})
+						catch unreachable;
 				}
-				std.debug.print("]{}%", .{(i*100)/(max)});
+				stdout.print("]{}%", .{(i*100)/(max)})
+					catch unreachable;
 			}
-			std.debug.print("\n", .{});
+			stdout.print("\n", .{})
+				catch unreachable;
 		}
-		std.debug.print("Generating Machines...\n", .{});
+		stdout.print("Generating Machines...\n", .{})
+			catch unreachable;
 		for (0..n) |i| {
 			const service_count = rng.intRangeAtMost(u64, 1, MAX_SERVICES);
 			uni.machines.append(Machine.init(mem, rng, service_count, pool, &uni.services))
 				catch unreachable;
 			const progress = i*100/n;
-			std.debug.print("\r[", .{});
+			stdout.print("\r[", .{})
+				catch unreachable;
 			for (0..progress) |_| {
-				std.debug.print("#", .{});
+				stdout.print("\x1b[1;35m#\x1b[0m", .{})
+					catch unreachable;
 			}
 			for (progress..100) |_| {
-				std.debug.print(" ", .{});
+				stdout.print(" ", .{})
+					catch unreachable;
 			}
-			std.debug.print("]{}%", .{(i*100)/(n)});
+			stdout.print("]{}%", .{(i*100)/(n)})
+				catch unreachable;
 		}
-		std.debug.print("\n", .{});
+		stdout.print("\n", .{})
+			catch unreachable;
 		return uni;
 	}
 	
@@ -1698,9 +1710,9 @@ const Universe = struct{
 								return null;
 							}
 							if (sys.rules.data.items[i].eval(self.mem, &sys.env, param)) {
-								stdout.print("\x1b[1;31m---200 OK---\x1b[0m\n", .{}) catch {return null;};
+								stdout.print("\x1b[1;35m---200 OK---\x1b[0m\n", .{}) catch {return null;};
 								if (sys.env.contains(sys.target)){
-									stdout.print("\x1b[1;34m---ACCESS GRANTED---\x1b[0m\n", .{}) catch {return null;};
+									stdout.print("\x1b[1;35m---ACCESS GRANTED---\x1b[0m\n", .{}) catch {return null;};
 								}
 								return sys;
 							}
@@ -1723,12 +1735,12 @@ const Universe = struct{
 					return null;
 				}
 				stdout.print("({c} {c}) ", .{
-					to_lower(state.sub.state),
+					to_upper(state.sub.state),
 					to_numeric(state.id.state)
 				}) catch {return null;};
 			}
 			stdout.print("\nroot permission: ({c} {c})\n", .{
-				to_lower(target.target.sub.state),
+				to_upper(target.target.sub.state),
 				to_numeric(target.target.id.state)
 			}) catch {return null;};
 			return null;
