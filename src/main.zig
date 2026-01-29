@@ -1612,7 +1612,7 @@ const Universe = struct{
 		const stdout = std.io.getStdOut().writer();
 		while (pool.items.len == 0) {
 			const max = n*4;
-			stdout.print("Heuristically Fuzzing Software...\n", .{})
+			stdout.print(" Heuristically Fuzzing Software...\n", .{})
 				catch unreachable;
 			for (0..max) |i| {
 				const progress = i*100/max;
@@ -1637,7 +1637,7 @@ const Universe = struct{
 			stdout.print("\n", .{})
 				catch unreachable;
 		}
-		stdout.print("Generating Machines...\n", .{})
+		stdout.print(" Generating Machines...\n", .{})
 			catch unreachable;
 		for (0..n) |i| {
 			const service_count = rng.intRangeAtMost(u64, 1, MAX_SERVICES);
@@ -1753,7 +1753,9 @@ const Universe = struct{
 		for (self.machines.items) |mach| {
 			summary += mach.services.items.len;
 		}
-		std.debug.print("{} machines, {} nonunique services running total\n", .{self.machines.items.len, summary});
+		const stdout = std.io.getStdOut().writer();
+		stdout.print(" Universe Generated\n \x1b[1;35m{}\x1b[0m machines, \x1b[1;35m{}\x1b[0m nonunique services running total\n\n Keep this window open\n", .{self.machines.items.len, summary})
+			catch unreachable;
 	}
 };
 
