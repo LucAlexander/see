@@ -1776,9 +1776,15 @@ pub fn game(mem: *const std.mem.Allocator, rng: std.Random, difficulty: u64) voi
 	var universe = Universe.init(mem, rng, WORLD_SIZE);
 	universe.show();
 	const cwd = std.fs.cwd();
+	var file = cwd.createFile("./world.q", .{.truncate=true})
+		catch unreachable;
+	file.close();
+	var outfile = cwd.createFile("./client.q", .{.truncate=true})
+		catch unreachable;
+	outfile.close();
 	while (true){
 		std.time.sleep(1_000_000);
-		var file = cwd.openFile("./world.q", .{})
+		file = cwd.openFile("./world.q", .{})
 			catch unreachable;
 		const stat = file.stat()
 			catch unreachable;
@@ -1809,6 +1815,10 @@ pub fn game(mem: *const std.mem.Allocator, rng: std.Random, difficulty: u64) voi
 		}
 		if (universe.execute(args)) |service| {
 			service.touched = true;
+			outfile = cwd.createFile("./client.q", .{.truncate=true})
+				catch unreachable;
+			_ = outfile.write("200")
+				catch unreachable;
 			if (rng.intRangeAtMost(u64, difficulty, difficulty + 8) == 0){
 				service.defend(difficulty);
 			}
