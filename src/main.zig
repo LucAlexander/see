@@ -1610,6 +1610,11 @@ const Universe = struct{
 		};
 		var pool = Buffer(System).init(mem.*);
 		const stdout = std.io.getStdOut().writer();
+		stdout.print("\n", .{}) catch unreachable;
+		stdout.print(" ░█▀▀░█░█░█▀▀░▀█▀░█▀▀░█▄█░░░█░█░█▀█░█▀▀░█░█\n", .{}) catch unreachable;
+		stdout.print(" ░▀▀█░░█░░▀▀█░░█░░█▀▀░█░█░░░█▀█░█▀█░█░░░█▀▄\n", .{}) catch unreachable;
+		stdout.print(" ░▀▀▀░░▀░░▀▀▀░░▀░░▀▀▀░▀░▀░░░▀░▀░▀░▀░▀▀▀░▀░▀\n", .{}) catch unreachable;
+		stdout.print("\n", .{}) catch unreachable;
 		while (pool.items.len == 0) {
 			const max = n*4;
 			stdout.print(" Heuristically Fuzzing Software...\n", .{})
@@ -1624,19 +1629,23 @@ const Universe = struct{
 				}
 				std.debug.print("\r[", .{});
 				for (0..progress) |_|{
-					stdout.print("\x1b[1;35m#\x1b[0m", .{})
+					stdout.print("\x1b[1;35m█\x1b[0m", .{})
 						catch unreachable;
 				}
 				for (progress..100) |_|{
-					stdout.print(" ", .{})
+					stdout.print("░", .{})
 						catch unreachable;
 				}
-				stdout.print("]{}%", .{(i*100)/(max)})
+				stdout.print("] {}%", .{(i*100)/(max)})
 					catch unreachable;
 			}
-			stdout.print("\n", .{})
+		}
+		stdout.print("\r[", .{}) catch unreachable;
+		for (0..100) |_| {
+			stdout.print("\x1b[1;35m█\x1b[0m", .{})
 				catch unreachable;
 		}
+		stdout.print("] 100%\n", .{}) catch unreachable;
 		stdout.print(" Generating Machines...\n", .{})
 			catch unreachable;
 		for (0..n) |i| {
@@ -1647,18 +1656,22 @@ const Universe = struct{
 			stdout.print("\r[", .{})
 				catch unreachable;
 			for (0..progress) |_| {
-				stdout.print("\x1b[1;35m#\x1b[0m", .{})
+				stdout.print("\x1b[1;35m█\x1b[0m", .{})
 					catch unreachable;
 			}
 			for (progress..100) |_| {
-				stdout.print(" ", .{})
+				stdout.print("░", .{})
 					catch unreachable;
 			}
-			stdout.print("]{}%", .{(i*100)/(n)})
+			stdout.print("] {}%", .{(i*100)/(n)})
 				catch unreachable;
 		}
-		stdout.print("\n", .{})
-			catch unreachable;
+		stdout.print("\r[", .{}) catch unreachable;
+		for (0..100) |_| {
+			stdout.print("\x1b[1;35m█\x1b[0m", .{})
+				catch unreachable;
+		}
+		stdout.print("] 100%\n", .{}) catch unreachable;
 		return uni;
 	}
 	
@@ -1756,6 +1769,12 @@ const Universe = struct{
 		const stdout = std.io.getStdOut().writer();
 		stdout.print(" Universe Generated\n \x1b[1;35m{}\x1b[0m machines, \x1b[1;35m{}\x1b[0m nonunique services running total\n\n Keep this window open\n", .{self.machines.items.len, summary})
 			catch unreachable;
+		stdout.print(" \x1b[1;35mHappy Hacking\x1b[0m\n ", .{})
+			catch unreachable;
+		for (0..100) |_| {
+			stdout.print("-", .{}) catch unreachable;
+		}
+		stdout.print("\n", .{}) catch unreachable;
 	}
 };
 
