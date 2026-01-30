@@ -1,7 +1,37 @@
 
+This was written in a very short amount of time, largely just to get it out of my head and into the world so I could focus on more important things. 
+
 # SYSTEM HACK
 
-This is a game about analyzing complex systems and using logic to exploit deterministically generated software systems in an isolated universe. 
+This is a game about analyzing complex systems and using logic to exploit deterministically generated software systems in an isolated universe. Upon running the server, you will be given a small universe of addressable machines, each with a small number of services running. This software is entirely deterministically generated. It has bugs, intentionally.
+The server will read issued commands from `world.q`. To send a command in the simplest way simple `echo "command" > world.q`.
+A python client program has been provided which abstracts away the command interface, it is recommended that you import this in idle to invoke the functions as quickly as possible in an engagement.
+
+The commands you can issue to `world.q` are:
+* `<machine address> scan`
+* `<service id> lookup`
+* `<machine address> call <service id> <function endpoint>`
+
+Examples:
+```
+
+0 scan
+47 lookup
+
+0 call 47 Tiger
+
+
+```
+
+On a successful call, 200 will be written to `client.q`
+
+On lookup you will be provided with the open source code of the srevice, the target permission on the target user, and a set of default configured permissions on default users for that service on that machine. Your goal is to analyze the system, find the logical inconsistencies, and exploit them to achieve root.
+
+Each server is equipped with a defender. This defender, upon noticing that you are trying to exploit the system may patch its software and update the version, or it may invoke functions to change the state of the system. You will not be notified of either of these actions, but you can se the version of the service running on scan. 
+
+Once you access root, the defender can still kick you off, so you should try to find ways to maintain persistence on the target capability. This naturally invites writing bots. Some services will be running on multiple machines in the universe, inviting bots which scan and auto pwn machines. 
+
+This is made to mimic, at a high level logic, how real security systems and adversarial programming encounters operate. I might revisit this project in the future to add more surface area of attack.
 
 # Research Artifact
 Below this point is content related to the capability system search space that was formed and implemented as a part of making this game.
